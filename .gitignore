@@ -1,4 +1,5 @@
 *.gif
+!examples/*.gif
 *.png
 *.mp4
 .DS_Store
