@@ -1,0 +1,5 @@
+# logistic-regression.ipynb, _run_to_6b.py, _tmp_run_all.py
+numpy>=1.24
+matplotlib>=3.7
+Pillow>=10.0
+tensorflow>=2.15
