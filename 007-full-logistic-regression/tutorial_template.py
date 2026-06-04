@@ -127,8 +127,8 @@ class TutorialTheme:
         elif role == "nll" and self.nll_accent_color:
             out["label_color"] = self.nll_accent_color
             out["accent_color"] = self.nll_accent_color
-        elif role == "formula" and self.formula_accent_color:
-            out["accent_color"] = self.formula_accent_color
+        elif role == "formula":
+            out["accent_color"] = self.formula_accent_color or self.text_color
         elif role == "weights" and region == "right":
             out["label_color"] = self.label_color
         return out
@@ -436,7 +436,7 @@ class TutorialComposer:
         corner_w = right_panel_w
         corner_h = bottom_h_total
         corner_title_y = bottom_title_y + float(L.corner_title_lift_in) / float(self.export.figsize[1])
-        corner_gap_below_title = title_band_b * 0.20
+        corner_gap_below_title = title_band_b * 0.23
         corner_content_top = bottom_title_y - corner_gap_below_title
         corner_content_y0 = bottom_content_y0
         corner_content_h = max(corner_content_top - corner_content_y0, 0.04)
@@ -553,8 +553,29 @@ class TutorialComposer:
             (upd_x, y0, max(total_w - (upd_x - x0), upd_w), h),
         ]
 
+    def _bottom_likelihood_3col_rects(self, blocks, bottom_rect):
+        """ch4_03 story: ℒ column | log ℒ (2 lines) | NLL."""
+        x0, y0, total_w, h = (float(v) for v in bottom_rect)
+        gap = float(self.layout.bottom_col_gap_frac)
+        lik_w = max(total_w * 0.26, 0.16)
+        log_w = max(total_w * 0.44, 0.24)
+        nll_w = max(total_w - lik_w - log_w - 2.0 * gap, 0.18)
+        nll_x = x0 + lik_w + gap + log_w + gap
+        return [
+            (x0, y0, lik_w, h),
+            (x0 + lik_w + gap, y0, log_w, h),
+            (nll_x, y0, nll_w, h),
+        ]
+
     def _bottom_block_rects(self, fig, blocks, bottom_rect):
         blocks = list(blocks)
+        if (
+            len(blocks) == 3
+            and blocks[0].get("formula_slot") == "lik"
+            and blocks[1].get("formula_slot") == "log"
+            and blocks[2].get("formula_slot") == "nll_col"
+        ):
+            return self._bottom_likelihood_3col_rects(blocks, bottom_rect)
         if (
             len(blocks) == 3
             and blocks[0].get("formula_slot") == "nll"
@@ -568,6 +589,42 @@ class TutorialComposer:
             pad_frac=self.layout.bottom_col_pad_frac,
             default_fs=self.typography.bottom_block_fs,
         )
+
+    _BOTTOM_TEXT_OVERLAY_ZORDER = 100
+
+    def _draw_bottom_blocks_overlay(
+        self,
+        fig,
+        blocks,
+        bottom_content_rect,
+        prog: dict,
+        *,
+        style,
+        ty,
+        T,
+        bottom_rects=None,
+    ):
+        """Draw bottom-rail formula text on a top layer so panels/columns cannot clip it."""
+        blocks = list(blocks or [])
+        if not blocks:
+            return
+        if bottom_rects is None:
+            bottom_rects = self._bottom_block_rects(fig, blocks, bottom_content_rect)
+        per = prog.get("bottom", {})
+        for bi, (block, rect) in enumerate(zip(blocks, bottom_rects)):
+            ax = fig.add_axes(rect, zorder=self._BOTTOM_TEXT_OVERLAY_ZORDER, facecolor="none")
+            ax.set_clip_on(False)
+            colors = T.block_colors(block, region="bottom")
+            hw.draw_block_cell(
+                ax, block, style=style,
+                block_fs=float(block.get("block_fs", ty.bottom_block_fs)),
+                label_fs=float(block.get("label_fs", ty.bottom_label_fs)),
+                align=str(block.get("align", "center")),
+                line_progress=per.get(bi, {}), show_frame=False,
+                text_x_frac=float(block.get("text_x_frac", 0.5 if block.get("align", "center") == "center" else 0.07)),
+                text_y_inset_pt=float(block.get("text_y_inset_pt", 2.0)),
+                **colors,
+            )
 
     def _corner_block_rects(self, fig, blocks, corner_rect):
         return self._column_block_rects(
@@ -754,27 +811,24 @@ class TutorialComposer:
                 pad_frac=self.layout.region_pad,
                 title_fs=ty.bottom_section_title_fs, title_color=T.bottom_title_color,
             )
+
+        if scene.math_bottom_blocks and float(panel_u) > 1e-4:
             bottom_rects = self._bottom_block_rects_cache.get(cache_key)
             if bottom_rects is None:
                 bottom_rects = self._bottom_block_rects(
                     fig, scene.math_bottom_blocks, rects["math_bottom_content"],
                 )
                 self._bottom_block_rects_cache[cache_key] = bottom_rects
-            for bi, (block, rect) in enumerate(zip(scene.math_bottom_blocks, bottom_rects)):
-                ax = fig.add_axes(rect, zorder=2, facecolor="none")
-                if hw.block_mathtext_usetex(block):
-                    ax.set_clip_on(False)
-                colors = T.block_colors(block, region="bottom")
-                hw.draw_block_cell(
-                    ax, block, style=style,
-                    block_fs=float(block.get("block_fs", ty.bottom_block_fs)),
-                    label_fs=float(block.get("label_fs", ty.bottom_label_fs)),
-                    align=str(block.get("align", "center")),
-                    line_progress={}, show_frame=bool(T.frame_edge),
-                    text_x_frac=float(block.get("text_x_frac", 0.5 if block.get("align", "center") == "center" else 0.07)),
-                    text_y_inset_pt=float(block.get("text_y_inset_pt", 2.0)),
-                    **colors,
-                )
+            self._draw_bottom_blocks_overlay(
+                fig,
+                scene.math_bottom_blocks,
+                rects["math_bottom_content"],
+                {},
+                style=style,
+                ty=ty,
+                T=T,
+                bottom_rects=bottom_rects,
+            )
 
         overlay = self.fig_to_image(fig)
         self._rails_overlay_cache[cache_key] = overlay
@@ -1023,24 +1077,17 @@ class TutorialComposer:
                 pad_frac=self.layout.region_pad,
                 title_fs=ty.bottom_section_title_fs, title_color=T.bottom_title_color,
             )
-            per = prog.get("bottom", {})
-            for bi, (block, rect) in enumerate(
-                zip(scene.math_bottom_blocks, self._bottom_block_rects(fig, scene.math_bottom_blocks, rects["math_bottom_content"]))
-            ):
-                ax = fig.add_axes(rect, zorder=2, facecolor="none")
-                if hw.block_mathtext_usetex(block):
-                    ax.set_clip_on(False)
-                colors = T.block_colors(block, region="bottom")
-                hw.draw_block_cell(
-                    ax, block, style=style,
-                    block_fs=float(block.get("block_fs", ty.bottom_block_fs)),
-                    label_fs=float(block.get("label_fs", ty.bottom_label_fs)),
-                    align=str(block.get("align", "center")),
-                    line_progress=per.get(bi, {}), show_frame=bool(T.frame_edge),
-                    text_x_frac=float(block.get("text_x_frac", 0.5 if block.get("align", "center") == "center" else 0.07)),
-                    text_y_inset_pt=float(block.get("text_y_inset_pt", 2.0)),
-                    **colors,
-                )
+
+        if scene.math_bottom_blocks and float(panel_u) > 1e-4:
+            self._draw_bottom_blocks_overlay(
+                fig,
+                scene.math_bottom_blocks,
+                rects["math_bottom_content"],
+                prog,
+                style=style,
+                ty=ty,
+                T=T,
+            )
 
         return self.fig_to_image(fig)
 
@@ -1099,7 +1146,7 @@ TUTORIAL_THEMES: dict[str, TutorialTheme] = {
         right_title_color="#12121c",
         bottom_title_color="#12121c",
         label_color="#5a5a72",
-        text_color="#1a1a28",
+        text_color="#000000",
         accent_color="#2563eb",
         frame_edge=None,
         crossfade_frac=0.06,

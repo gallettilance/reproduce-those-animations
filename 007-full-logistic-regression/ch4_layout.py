@@ -35,8 +35,131 @@ CH4_TEMPLATE_THEME = "dark_rails"
 # ch4_02 end frame fills the canvas; morph shrinks it into the template plot slot.
 CH4_LIK_PLOT_START_RECT = (0.0, 0.0, 1.0, 1.0)
 
-CH4_RAILS_CACHE_3D = "ch4_lik_3d_v1"
-CH4_RAILS_CACHE_GD = "ch4_lik_gd_v1"
+# Duo layout: 2D panel −10%, 3D +10%, 3D vertically aligned with 2D (not 2D+knobs).
+CH4_DUO_DATA_SCALE = 0.90
+CH4_DUO_AX3D_SCALE = 1.10
+CH4_DUO_PLOTS_X_SHIFT_MM = -4.0   # nudge 2D + 3D left; knobs unchanged
+CH4_DUO_PLOTS_X_SHIFT_PT = CH4_DUO_PLOTS_X_SHIFT_MM * 72.0 / 25.4
+
+
+def _ch4_fig_x_shift_frac(fig, shift_pt: float) -> float:
+    w_pt = float(fig.get_figwidth()) * 72.0
+    return float(shift_pt) / w_pt if w_pt > 0 else 0.0
+
+
+def ch4_duo_plot_layout_tune(
+    fig,
+    ax_data,
+    ax3d,
+    *,
+    data_scale: float | None = None,
+    ax3d_scale: float | None = None,
+    x_shift_pt: float | None = None,
+) -> None:
+    """Shrink 2D, enlarge 3D, align 3D center with 2D; leave knob axes untouched."""
+    data_scale = CH4_DUO_DATA_SCALE if data_scale is None else float(data_scale)
+    ax3d_scale = CH4_DUO_AX3D_SCALE if ax3d_scale is None else float(ax3d_scale)
+    x_shift_pt = CH4_DUO_PLOTS_X_SHIFT_PT if x_shift_pt is None else float(x_shift_pt)
+    x_shift = _ch4_fig_x_shift_frac(fig, x_shift_pt)
+    fig.canvas.draw()
+    d = ax_data.get_position()
+    r = ax3d.get_position()
+    dw = d.width * data_scale
+    dh = d.height * data_scale
+    dx = d.x0 + 0.5 * (d.width - dw) + x_shift
+    dy = d.y0 + 0.5 * (d.height - dh)
+    ax_data.set_position([dx, dy, dw, dh])
+    rw = r.width * ax3d_scale
+    rh = r.height * ax3d_scale
+    cy = dy + 0.5 * dh
+    rx = r.x0 + 0.5 * (r.width - rw) + x_shift
+    ry = cy - 0.5 * rh
+    ax3d.set_position([rx, ry, rw, rh])
+
+
+def ch4_duo_partial_layout_tune(
+    fig,
+    ax_data,
+    axes_partial,
+    *,
+    data_scale: float | None = None,
+    right_scale: float | None = None,
+    x_shift_pt: float | None = None,
+    hspace_frac: float = 0.10,
+    y_drop_mm: float = 0.0,
+    y_lift_mm: float = 0.0,
+    x_shift_mm: float = 0.0,
+    subplot_height_frac: float = 1.0,
+) -> None:
+    """Like ``ch4_duo_plot_layout_tune`` but right column is stacked 1-D NLL panels."""
+    data_scale = CH4_DUO_DATA_SCALE if data_scale is None else float(data_scale)
+    right_scale = CH4_DUO_AX3D_SCALE if right_scale is None else float(right_scale)
+    x_shift_pt = CH4_DUO_PLOTS_X_SHIFT_PT if x_shift_pt is None else float(x_shift_pt)
+    x_shift = _ch4_fig_x_shift_frac(fig, x_shift_pt)
+    fig.canvas.draw()
+    d = ax_data.get_position()
+    dw = d.width * data_scale
+    dh = d.height * data_scale
+    dx = d.x0 + 0.5 * (d.width - dw) + x_shift
+    dy = d.y0 + 0.5 * (d.height - dh)
+    ax_data.set_position([dx, dy, dw, dh])
+    rs = [ax.get_position() for ax in axes_partial]
+    x0 = min(r.x0 for r in rs)
+    y0 = min(r.y0 for r in rs)
+    x1 = max(r.x0 + r.width for r in rs)
+    y1 = max(r.y0 + r.height for r in rs)
+    rw_full = (x1 - x0) * right_scale
+    rh_full = (y1 - y0) * right_scale
+    cy = dy + 0.5 * dh
+    rx = x0 + 0.5 * ((x1 - x0) - rw_full) + x_shift
+    ry = cy - 0.5 * rh_full
+    fig_h_pt = max(float(fig.get_figheight()) * 72.0, 1e-9)
+    fig_w_pt = max(float(fig.get_figwidth()) * 72.0, 1e-9)
+    if float(y_drop_mm) != 0.0:
+        ry -= float(y_drop_mm) * 72.0 / 25.4 / fig_h_pt
+    n = len(axes_partial)
+    gap = float(hspace_frac) * rh_full / max(n, 1)
+    sub_h = (rh_full - gap * max(n - 1, 0)) / max(n, 1)
+    panel_h = sub_h * float(subplot_height_frac)
+    top_cap = 0.915
+
+    def _place_partial_stack(anchor_top: float) -> None:
+        for i, ax in enumerate(axes_partial):
+            yi = anchor_top - (i + 1) * panel_h - i * gap
+            ax.set_position([rx, yi, rw_full, panel_h])
+
+    anchor_top = ry + rh_full
+    overflow = anchor_top - top_cap
+    if overflow > 0.0:
+        anchor_top -= overflow
+    _place_partial_stack(anchor_top)
+    dx_frac = float(x_shift_mm) * 72.0 / 25.4 / fig_w_pt
+    dy_frac = float(y_lift_mm) * 72.0 / 25.4 / fig_h_pt
+    if dx_frac != 0.0 or dy_frac != 0.0:
+        for ax in axes_partial:
+            p = ax.get_position()
+            ax.set_position([p.x0 + dx_frac, p.y0 + dy_frac, p.width, p.height])
+
+
+CH4_RAILS_CACHE_3D = "ch4_lik_3d_v13"
+CH4_RAILS_CACHE_GD = "ch4_lik_gd_v8"
+
+
+def ch4_rails_cache_key_gd(
+    *,
+    bold_update_idx: int | None = None,
+    bold_all: bool = False,
+    grad_red: bool = False,
+) -> str:
+    """Cache key for a GD bottom-rail variant (corner + formulas, static per variant)."""
+    if bold_all:
+        bold_tag = "all"
+    elif bold_update_idx is None:
+        bold_tag = "none"
+    else:
+        bold_tag = str(int(bold_update_idx))
+    color_tag = "red" if grad_red else "rgb"
+    return f"{CH4_RAILS_CACHE_GD}_{bold_tag}_{color_tag}"
 
 _CH4_CACHED_GD_BOTTOM: list[dict] | None = None
 _CH4_CACHED_3D_BOTTOM: list[dict] | None = None
@@ -172,7 +295,7 @@ def _ch4_notation_weights_row(**extra) -> dict:
 
 def _ch4_notation_yi_xi_lines() -> tuple[str, str]:
     return (
-        r"$y_{i} = \begin{cases} 1 & \text{if student i passed} \\ 0 & \text{if student i failed} \end{cases}$",
+        r"$y_{i} = \begin{cases} 1 & \text{if i passed} \\ 0 & \text{if i failed} \end{cases}$",
         r"$x_{i} = \left[x_{i,\mathrm{ST}},\, x_{i,\mathrm{EL}}\right]$",
     )
 
@@ -180,17 +303,18 @@ def _ch4_notation_yi_xi_lines() -> tuple[str, str]:
 def _ch4_notation_yi_xi_block(**extra) -> dict:
     yi, xi = _ch4_notation_yi_xi_lines()
     base = dict(
-        mathtext_fs=[CH4_NOTATION_MATH_FS, CH4_NOTATION_XI_MATH_FS],
-        mathtext_line_y_inset_pt=[0.0, CH4_NOTATION_XI_LIFT_PT],
+        text=yi + "\n" + xi,
+        block_fs=CH4_HERE_BLOCK_FS,
         line_dy_pt=CH4_HERE_LOOSE_LINE_DY_PT,
         align="left",
         top_pad_pt=0.0,
         pt_units=True,
         role="formula",
-        mathtext_usetex=True,
+        text_x_frac=0.04,
+        cases_row_gap_pt=CH4_CASES_ROW_GAP_PT,
     )
     base.update(extra)
-    return _ch4_story_mathtext_block(yi, xi, **base)
+    return base
 
 
 def ch4_notation_blocks_basic() -> list[dict]:
@@ -203,104 +327,278 @@ def ch4_notation_blocks_expanded() -> list[dict]:
     return [{
         "block_fs": CH4_HERE_BLOCK_FS,
         "line_dy_pt": CH4_HERE_WEIGHTS_LINE_DY_PT,
-        "top_pad_pt": 0.0,
+        "top_pad_pt": CH4_NOTATION_EXPANDED_TOP_PAD_PT,
         "label_gap_pt": 0.0,
         "align": "left",
         "pt_units": True,
-        "text": "w_ST = knob 1\nw_EL = knob 2\nb = knob 3",
+        "text": (
+            "w_ST = knob 1\nw_EL = knob 2\nb = knob 3\n"
+            + yi + "\n" + xi
+        ),
+        "line_y_inset_pt": {CH4_NOTATION_YI_LINE_IDX: CH4_NOTATION_YI_DROP_PT},
+        "line_extra_dy_pt": {CH4_NOTATION_YI_LINE_IDX: CH4_NOTATION_YI_XI_GAP_PT},
+        "line_body_fs": {CH4_NOTATION_XI_LINE_IDX: CH4_NOTATION_XI_BODY_FS},
+        "line_subscript_scale": {CH4_NOTATION_XI_LINE_IDX: CH4_NOTATION_XI_SUB_SCALE},
+        "cases_row_gap_pt": CH4_CASES_ROW_GAP_PT,
         "role": "weights",
-        "mathtext_usetex": True,
-        "mathtext_fs": [CH4_NOTATION_MATH_FS, CH4_NOTATION_XI_MATH_FS],
-        "mathtext_line_y_inset_pt": [CH4_HERE_LOOSE_LINE_DY_PT, CH4_NOTATION_XI_LIFT_PT],
-        "mathtext_lines": [yi, xi],
     }]
 
 
 def ch4_formula_blocks_likelihood() -> list[dict]:
-    return [{"text": "ℒ = Π_i p(y_i | x_i)", "bold_lhs": True, "role": "formula"}]
+    return [ch4_formula_col_likelihood()]
 
 
 def ch4_formula_blocks_log_likelihood() -> list[dict]:
-    return [{"text": "log ℒ = Σ_i log p(y_i | x_i)", "bold_lhs": True, "role": "formula"}]
+    return [ch4_formula_col_log()]
 
 
 def ch4_formula_blocks_nll() -> list[dict]:
-    return [{"text": "NLL = -Σ_i log p(y_i | x_i)", "bold_lhs": True, "role": "nll"}]
+    return [ch4_formula_nll_block()]
+
+
+# Navy → blue → purple → magenta → red (matches ch3_loglik_ridge_dark_heatmap.png)
+CH4_NLL_HEATMAP_COLORS = (
+    "#08111f",
+    "#122A88",
+    "#2D5BFF",
+    "#7A4DFF",
+    "#C13CFF",
+    "#FF3B5C",
+)
+CH4_NLL_HEATMAP_PCT_LO = 2.0
+CH4_NLL_HEATMAP_PCT_HI = 98.0
+
+_CH4_NLL_HEATMAP_CMAP = None
+
+
+def ch4_nll_heatmap_cmap():
+    """Smooth navy → blue → purple → magenta → red (ch3 ridge dark heatmap)."""
+    global _CH4_NLL_HEATMAP_CMAP
+    if _CH4_NLL_HEATMAP_CMAP is None:
+        from matplotlib.colors import LinearSegmentedColormap
+
+        _CH4_NLL_HEATMAP_CMAP = LinearSegmentedColormap.from_list(
+            "ch4_nll_ridge_neon",
+            CH4_NLL_HEATMAP_COLORS,
+            N=256,
+        )
+    return _CH4_NLL_HEATMAP_CMAP
+
+
+def ch4_nll_heatmap_limits(values, *, vmin=None, vmax=None, pct=None):
+    """Default vmin/vmax via percentiles (same spirit as ridge export script)."""
+    import numpy as np
+
+    arr = np.asarray(values, dtype=float)
+    if vmin is not None and vmax is not None:
+        return float(vmin), float(vmax)
+    lo_p, hi_p = (
+        (CH4_NLL_HEATMAP_PCT_LO, CH4_NLL_HEATMAP_PCT_HI)
+        if pct is None
+        else (float(pct[0]), float(pct[1]))
+    )
+    if vmin is None:
+        vmin = float(np.nanpercentile(arr, lo_p))
+    if vmax is None:
+        vmax = float(np.nanpercentile(arr, hi_p))
+    if vmax <= vmin:
+        vmax = vmin + 1e-9
+    return float(vmin), float(vmax)
+
+
+def ch4_nll_heatmap_color(nll, vmin, vmax) -> str:
+    import matplotlib as mpl
+    from matplotlib.colors import Normalize
+
+    lo, hi = float(vmin), float(vmax)
+    norm = Normalize(vmin=lo, vmax=hi)
+    rgba = ch4_nll_heatmap_cmap()(norm(float(nll)))
+    return mpl.colors.to_hex(rgba, keep_alpha=False)
+
+
+def ch4_nll_heatmap_facecolors(values, *, vmin=None, vmax=None, alpha=1.0, pct=None):
+    """RGBA facecolor array for ``plot_surface`` (shape matches ``values`` + alpha channel)."""
+    import numpy as np
+    from matplotlib.colors import Normalize
+
+    Z = np.asarray(values, dtype=float)
+    lo, hi = ch4_nll_heatmap_limits(Z, vmin=vmin, vmax=vmax, pct=pct)
+    norm = Normalize(vmin=lo, vmax=hi)
+    rgba = ch4_nll_heatmap_cmap()(norm(Z))
+    rgba = np.asarray(rgba, dtype=float)
+    rgba[..., 3] = float(alpha)
+    return rgba
 
 
 def ch4_nll_viridis_color(nll, vmin, vmax, *, cmap_name: str = "viridis") -> str:
-    import matplotlib as mpl
-
-    lo, hi = float(vmin), float(vmax)
-    t = 0.0 if hi <= lo else float((float(nll) - lo) / (hi - lo))
-    t = max(0.0, min(1.0, t))
-    rgba = mpl.colormaps.get_cmap(cmap_name)(t)
-    return mpl.colors.to_hex(rgba, keep_alpha=False)
+    del cmap_name  # kept for call-site compatibility
+    return ch4_nll_heatmap_color(nll, vmin, vmax)
 
 
 CH4_STORY_MATH_FS = 14.5
 CH4_FORMULA_MATH_FS = round(CH4_STORY_MATH_FS * 1.4, 1)  # +40%
 CH4_NOTATION_MATH_FS = round(CH4_STORY_MATH_FS * 1.3, 1)  # +30%
 CH4_NOTATION_XI_MATH_FS = round(CH4_NOTATION_MATH_FS * 1.22, 1)
-CH4_HERE_BLOCK_FS = 21.5
+CH4_HERE_BLOCK_FS = 22.5
 CH4_FORMULA_BODY_DROP_PT = 13.0 * 72.0 / 25.4
 CH4_FORMULA_NLL_DROP_MM = 9.0    # raised 2 mm from prior 11 mm
 CH4_FORMULA_NLL_DROP_PT = CH4_FORMULA_NLL_DROP_MM * 72.0 / 25.4
-CH4_FORMULA_PROB_DROP_PT = CH4_FORMULA_BODY_DROP_PT + 1.0 * 72.0 / 25.4   # +1.0 cm (ch4_04)
+CH4_FORMULA_NLL_X_SHIFT_MM = -3.0   # single-column NLL (ch4_03 end, ch4_04+)
+CH4_FORMULA_NLL_X_SHIFT_PT = CH4_FORMULA_NLL_X_SHIFT_MM * 72.0 / 25.4
+CH4_FORMULA_PROB_DROP_PT = CH4_FORMULA_BODY_DROP_PT + 2.0 * 72.0 / 25.4   # +2.0 cm (ch4_04)
 CH4_FORMULA_PROB_TEXT_X_FRAC = 0.02
+CH4_FORMULA_PRIMARY_X_FRAC = 0.07
+CH4_FORMULA_LOG_TEXT_X_FRAC = 0.015
+CH4_FORMULA_CH03_LOG_NLL_X_SHIFT_PT = -20.0 * 72.0 / 25.4   # ch4_03 three-col: log + NLL left 2 cm
+CH4_FORMULA_PROB_X_SHIFT_PT = 30.0 * 72.0 / 25.4             # prob right 3 cm
+CH4_FORMULA_PROB_Y_SHIFT_PT = 12.0 * 72.0 / 25.4             # prob down 12 mm
+CH4_FORMULA_LOG_LINE_DY_PT = 22.0
+CH4_LOG_LIK_SPLIT_FRAC = 0.58
+
+# Notation layout (expanded block: weights×3, y_i cases, x_i)
+CH4_NOTATION_YI_LINE_IDX = 3
+CH4_NOTATION_XI_LINE_IDX = 4
+CH4_NOTATION_EXPANDED_TOP_PAD_MM = 1.5
+CH4_NOTATION_EXPANDED_TOP_PAD_PT = CH4_NOTATION_EXPANDED_TOP_PAD_MM * 72.0 / 25.4
+CH4_NOTATION_YI_DROP_MM = 6.0
+CH4_NOTATION_YI_DROP_PT = CH4_NOTATION_YI_DROP_MM * 72.0 / 25.4
+CH4_NOTATION_YI_XI_GAP_MM = 11.0
+CH4_NOTATION_YI_XI_GAP_PT = CH4_NOTATION_YI_XI_GAP_MM * 72.0 / 25.4
+CH4_NOTATION_XI_BODY_FS = round(CH4_HERE_BLOCK_FS * 26.5 / 21.5, 1)
+CH4_NOTATION_XI_SUB_SCALE = round(CH4_HERE_BLOCK_FS * 0.62 / CH4_NOTATION_XI_BODY_FS, 4)
+
+# TeX sources → Patrick Hand via ``latex_line_to_handwrite`` (limits, cases, scripts).
+CH4_LIKELIHOOD_TEX = r"$\mathcal{L}=\prod_{i=0}^{N} p(y_i \mid x_i)$"
+CH4_LOG_LIK_TEX = (
+    r"$\log \mathcal{L}=\log(\prod_{i=0}^{N} p(y_i \mid x_i))"
+    r" = \sum_{i=0}^{N} \log p(y_i \mid x_i)$"
+)
+CH4_LOG_LIK_LINE1_TEX = CH4_LOG_LIK_TEX
+CH4_LOG_LIK_LINE2_TEX = ""
+CH4_LOG_LIK_LOG_BOTH_TEX = CH4_LOG_LIK_TEX
+CH4_LOG_LIK_SIMPLIFIED_TEX = CH4_LOG_LIK_TEX
+CH4_NEG_LOG_LIK_TEX = r"$NLL(w_{\mathrm{ST}}, w_{\mathrm{EL}}, b)=-\log \mathcal{L}$"
+CH4_NLL_FORMULA_TEX = (
+    r"$NLL(w_{\mathrm{ST}}, w_{\mathrm{EL}}, b) = -\mathop{\sum}\limits_{i=0}^{N} \log p(y_i \mid x_i)$"
+)
+CH4_PROB_FORMULA_TEX = (
+    r"$p(y_i \mid x_i) = \begin{cases}"
+    r"\sigma(\boldsymbol{w_{\mathrm{ST}}} x_{i,\mathrm{ST}} + \boldsymbol{w_{\mathrm{EL}}} x_{i,\mathrm{EL}} + \boldsymbol{b})"
+    r" & \text{if i passed} \\[1.0em]"
+    r"1 - \sigma(\boldsymbol{w_{\mathrm{ST}}} x_{i,\mathrm{ST}} + \boldsymbol{w_{\mathrm{EL}}} x_{i,\mathrm{EL}} + \boldsymbol{b})"
+    r" & \text{if i failed} \end{cases}$"
+)
 CH4_FORMULA_GRAD_UNIT_SHIFT_IN = 3.0 / 2.54   # shift ∂ column right (+1 cm)
 CH4_FORMULA_GRAD_UNIT_BASE_DROP_MM = 12.0
-CH4_FORMULA_GRAD_UNIT_LIFT_MM = 13.0          # raise ∂ / update columns slightly
+CH4_FORMULA_GRAD_UNIT_LIFT_MM = 15.0          # +1 mm lower on page vs prior
 CH4_FORMULA_GRAD_UNIT_DROP_MM = CH4_FORMULA_GRAD_UNIT_BASE_DROP_MM - CH4_FORMULA_GRAD_UNIT_LIFT_MM
 CH4_FORMULA_GRAD_UNIT_DROP_PT = CH4_FORMULA_GRAD_UNIT_DROP_MM * 72.0 / 25.4
-CH4_FORMULA_GRAD_LINE_DY_MM = 2.8             # spacing within ∂ / update columns
+CH4_FORMULA_GRAD_LINE_DY_MM = 3.5             # spacing within ∂ / update columns
 CH4_FORMULA_GRAD_LINE_DY_PT = CH4_FORMULA_GRAD_LINE_DY_MM * 72.0 / 25.4
+CH4_FORMULA_GRAD_ROW_PITCH_MM = 14.5
+CH4_FORMULA_GRAD_ROW_PITCH_PT = CH4_FORMULA_GRAD_ROW_PITCH_MM * 72.0 / 25.4
+CH4_FORMULA_GRAD_ROW_Y_PT = {
+    0: 0.0,
+    1: CH4_FORMULA_GRAD_ROW_PITCH_PT,
+    2: 2.0 * CH4_FORMULA_GRAD_ROW_PITCH_PT,
+}
 CH4_FORMULA_GRAD_MATH_FS = round(CH4_FORMULA_MATH_FS * 0.88, 1)
-CH4_NLL_FORMULA_TEX = (
-    r"$NLL = -\mathop{\sum}\limits_{i=0}^{N} \log p(y_i \mid x_i)$"
-)
 CH4_GRAD_PARTIAL_ST_TEX = (
-    r"$\frac{\partial NLL}{\partial w_{\mathrm{ST}}} = "
-    r"\sum_i \bigl(p(y_i \mid x_i) - y_i\bigr)\, x_{i,\mathrm{ST}}$"
+    r"$\frac{\partial NLL}{\partial w_{ST}}=\sum_i (p(y_i \mid x_i)-y_i) x_{i,ST}$"
 )
 CH4_GRAD_PARTIAL_EL_TEX = (
-    r"$\frac{\partial NLL}{\partial w_{\mathrm{EL}}} = "
-    r"\sum_i \bigl(p(y_i \mid x_i) - y_i\bigr)\, x_{i,\mathrm{EL}}$"
+    r"$\frac{\partial NLL}{\partial w_{EL}}=\sum_i (p(y_i \mid x_i)-y_i) x_{i,EL}$"
 )
 CH4_GRAD_PARTIAL_B_TEX = (
-    r"$\frac{\partial NLL}{\partial b} = \sum_i \bigl(p(y_i \mid x_i) - y_i\bigr)$"
+    r"$\frac{\partial NLL}{\partial b}=\sum_i (p(y_i \mid x_i)-y_i)$"
 )
 CH4_GRAD_UPDATE_ST_TEX = (
-    r"$w_{\mathrm{ST}} \leftarrow w_{\mathrm{ST}}"
-    r" - \alpha\,\frac{\partial NLL}{\partial w_{\mathrm{ST}}}$"
+    r"$w_{ST} \leftarrow w_{ST} - \alpha \frac{\partial NLL}{\partial w_{ST}}$"
 )
 CH4_GRAD_UPDATE_EL_TEX = (
-    r"$w_{\mathrm{EL}} \leftarrow w_{\mathrm{EL}}"
-    r" - \alpha\,\frac{\partial NLL}{\partial w_{\mathrm{EL}}}$"
+    r"$w_{EL} \leftarrow w_{EL} - \alpha \frac{\partial NLL}{\partial w_{EL}}$"
 )
 CH4_GRAD_UPDATE_B_TEX = (
-    r"$b \leftarrow b - \alpha\,\frac{\partial NLL}{\partial b}$"
+    r"$b \leftarrow b - \alpha \frac{\partial NLL}{\partial b}$"
 )
 CH4_GD_ARROW_ST_COLOR = "#2563eb"
 CH4_GD_ARROW_EL_COLOR = "#ea580c"
 CH4_GD_ARROW_B_COLOR = "#16a34a"
+CH4_GD_GRADIENT_COLOR = "#d62728"
 CH4_GD_PARTIAL_COLORS = (
     CH4_GD_ARROW_ST_COLOR,
     CH4_GD_ARROW_EL_COLOR,
     CH4_GD_ARROW_B_COLOR,
 )
-CH4_NOTATION_TEXT_DROP_MM = 1.0
+CH4_NOTATION_TEXT_DROP_MM = 1.5
 CH4_NOTATION_TEXT_DROP_PT = CH4_NOTATION_TEXT_DROP_MM * 72.0 / 25.4
-CH4_NOTATION_XI_LIFT_MM = 3.0
+CH4_NOTATION_CORNER_YI_DROP_PT = 0.0
+CH4_NOTATION_CORNER_YI_XI_GAP_MM = 6.0
+CH4_NOTATION_CORNER_YI_XI_GAP_PT = CH4_NOTATION_CORNER_YI_XI_GAP_MM * 72.0 / 25.4
+CH4_NOTATION_XI_LIFT_MM = 5.5
 CH4_NOTATION_XI_LIFT_PT = -CH4_NOTATION_XI_LIFT_MM * 72.0 / 25.4
 CH4_HERE_LOOSE_LINE_DY_PT = 5.0
 CH4_HERE_WEIGHTS_LINE_DY_MM = 3.5
 CH4_HERE_WEIGHTS_LINE_DY_PT = CH4_HERE_WEIGHTS_LINE_DY_MM * 72.0 / 25.4
-CH4_HERE_PARTIALS_LINE_DY_PT = CH4_HERE_LOOSE_LINE_DY_PT * 0.5
+CH4_HERE_PARTIALS_LINE_DY_MM = 8.0
+CH4_HERE_PARTIALS_LINE_DY_PT = CH4_HERE_PARTIALS_LINE_DY_MM * 72.0 / 25.4
+CH4_HERE_ALPHA_PRE_GAP_MM = 4.0
+CH4_HERE_ALPHA_PRE_GAP_PT = CH4_HERE_ALPHA_PRE_GAP_MM * 72.0 / 25.4
 CH4_HERE_NLL_TOP_PAD_MM = -4.0   # pull NLL text up within its row
 CH4_HERE_NLL_TOP_PAD_PT = CH4_HERE_NLL_TOP_PAD_MM * 72.0 / 25.4
 CH4_HERE_NLL_PRE_GAP_MM = -4.0   # tighten row gap between bias and NLL
 CH4_HERE_NLL_PRE_GAP_PT = CH4_HERE_NLL_PRE_GAP_MM * 72.0 / 25.4
+CH4_HERE_NLL_EQUALS_EXTRA_GAP_MM = 2.0
+CH4_HERE_NLL_EQUALS_EXTRA_GAP_PT = CH4_HERE_NLL_EQUALS_EXTRA_GAP_MM * 72.0 / 25.4
+CH4_CASES_ROW_GAP_MM = 10.0
+CH4_CASES_ROW_GAP_PT = CH4_CASES_ROW_GAP_MM * 72.0 / 25.4
+
+
+def _ch4_fmt_step_size(v) -> str:
+    return f"{float(v):.4f}".rstrip("0").rstrip(".")
+
+
+def ch4_we_are_here_grad_line_colors(*, grad_red: bool = False, transition_u: float = 0.0) -> list[str]:
+    """Per-partial colors for the right rail (matches GD axis-arrow hues; blends to red in ch4_07)."""
+    import matplotlib.colors as mcolors
+    import numpy as np
+
+    red = CH4_GD_GRADIENT_COLOR
+    u = float(np.clip(float(transition_u), 0.0, 1.0))
+    if u > 0.0:
+        out: list[str] = []
+        for c in CH4_GD_PARTIAL_COLORS:
+            a = np.array(mcolors.to_rgb(c))
+            b = np.array(mcolors.to_rgb(red))
+            out.append(mcolors.to_hex(a + u * (b - a)))
+        return out
+    if grad_red:
+        return [red, red, red]
+    return list(CH4_GD_PARTIAL_COLORS)
+
+
+def ch4_write_slot_count(blocks, *, style=None) -> int:
+    """Count handwriting reveal slots across blocks (labels + lines)."""
+    import handwrite_tutorial as hw
+
+    style = style or CH4_COMPOSER.handwrite_style()
+    n = 0
+    for block in blocks or []:
+        if block.get("label"):
+            n += 1
+        n += hw.block_n_lines(block, style=style)
+    return n
+
+
+def ch4_blocks_write_from_slot(
+    blocks,
+    start_slot: int,
+    progress: float,
+    *,
+    style=None,
+) -> dict[int, dict]:
+    """Per-block line progress keeping the first ``start_slot`` slots fully written."""
+    return ch4_group_write_from_slot([list(blocks or [])], start_slot, progress, style=style)[0]
 
 
 def ch4_bold_mathtext(tex: str) -> str:
@@ -351,9 +649,14 @@ def ch4_we_are_here_blocks(
         nll_color = str(point_color)
     nll_block = {
         **row,
-        "text": f"NLL = {float(nll):.2f}",
+        "text": (
+            f"NLL({float(w_st):.2f}, {float(w_el):.2f}, {float(b):.2f})\n"
+            f"= {float(nll):.2f}"
+        ),
         "top_pad_pt": CH4_HERE_NLL_TOP_PAD_PT,
         "pre_gap_pt": CH4_HERE_NLL_PRE_GAP_PT,
+        "line_dy_pt": CH4_HERE_WEIGHTS_LINE_DY_PT,
+        "line_extra_dy_pt": {0: CH4_HERE_NLL_EQUALS_EXTRA_GAP_PT},
         "role": "nll",
     }
     if nll_color:
@@ -361,28 +664,152 @@ def ch4_we_are_here_blocks(
     blocks.append(nll_block)
     if grad is not None:
         g1, g2, gb = grad
-        colors = grad_line_colors if grad_line_colors is not None else CH4_GD_PARTIAL_COLORS
-        blocks.append({
+        colors = list(grad_line_colors) if grad_line_colors is not None else list(CH4_GD_PARTIAL_COLORS)
+        grad_block = {
             **partials_row,
-            "mathtext_lines": [
-                rf"$\frac{{\partial NLL}}{{\partial w_{{\mathrm{{ST}}}}}} = {float(g1):.2f}$",
-                rf"$\frac{{\partial NLL}}{{\partial w_{{\mathrm{{EL}}}}}} = {float(g2):.2f}$",
-                rf"$\frac{{\partial NLL}}{{\partial b}} = {float(gb):.2f}$",
-            ],
-            "mathtext_line_colors": list(colors),
-            "mathtext_usetex": True,
-            "mathtext_fs": CH4_HERE_BLOCK_FS,
+            "text": (
+                rf"$\partial NLL/\partial w_{{ST}} = {float(g1):.2f}$" + "\n"
+                rf"$\partial NLL/\partial w_{{EL}} = {float(g2):.2f}$" + "\n"
+                rf"$\partial NLL/\partial b = {float(gb):.2f}$"
+            ),
             "role": "gradient",
-        })
+        }
+        if colors:
+            grad_block["line_text_colors"] = list(colors[:3])
+        blocks.append(grad_block)
     if step_size is not None:
         blocks.append({
             **row,
-            "mathtext_lines": [rf"$\alpha = {float(step_size):.4f}$"],
-            "mathtext_usetex": True,
-            "mathtext_fs": CH4_HERE_BLOCK_FS,
+            "text": f"α = {_ch4_fmt_step_size(step_size)}",
+            "pre_gap_pt": CH4_HERE_ALPHA_PRE_GAP_PT,
             "role": "gradient",
         })
     return blocks
+
+
+def ch4_we_are_here_roc_blocks(
+    w_st,
+    w_el,
+    b,
+    nll,
+    rocs,
+    *,
+    nll_vmin=None,
+    nll_vmax=None,
+    point_color=None,
+    show_partials: bool = False,
+    partials=None,
+    grad_line_colors=None,
+) -> list[dict]:
+    """Right-rail: weights + NLL + average rate-of-change (or ∂ lines when ``show_partials``)."""
+    row = {
+        "block_fs": CH4_HERE_BLOCK_FS,
+        "line_dy_pt": CH4_HERE_LOOSE_LINE_DY_PT,
+        "top_pad_pt": 0.0,
+        "label_gap_pt": 0.0,
+        "align": "left",
+        "pt_units": True,
+    }
+    weights_row = {**row, "line_dy_pt": CH4_HERE_WEIGHTS_LINE_DY_PT}
+    partials_row = {**row, "line_dy_pt": CH4_HERE_PARTIALS_LINE_DY_PT}
+    blocks = [{
+        **weights_row,
+        "text": (
+            f"w_ST = {float(w_st):.2f}\n"
+            f"w_EL = {float(w_el):.2f}\n"
+            f"b = {float(b):.2f}"
+        ),
+        "role": "weights",
+    }]
+    nll_color = None
+    if nll_vmin is not None and nll_vmax is not None:
+        nll_color = ch4_nll_viridis_color(nll, nll_vmin, nll_vmax)
+    elif point_color is not None:
+        nll_color = str(point_color)
+    nll_block = {
+        **row,
+        "text": (
+            f"NLL({float(w_st):.2f}, {float(w_el):.2f}, {float(b):.2f})\n"
+            f"= {float(nll):.2f}"
+        ),
+        "top_pad_pt": CH4_HERE_NLL_TOP_PAD_PT,
+        "pre_gap_pt": CH4_HERE_NLL_PRE_GAP_PT,
+        "line_dy_pt": CH4_HERE_WEIGHTS_LINE_DY_PT,
+        "line_extra_dy_pt": {0: CH4_HERE_NLL_EQUALS_EXTRA_GAP_PT},
+        "role": "nll",
+    }
+    if nll_color:
+        nll_block["text_color"] = nll_color
+    blocks.append(nll_block)
+    if rocs is not None:
+        g1, g2, gb = rocs
+        colors = list(grad_line_colors) if grad_line_colors is not None else list(CH4_GD_PARTIAL_COLORS)
+        if show_partials and partials is not None:
+            p1, p2, pb = partials
+            roc_block = {
+                **partials_row,
+                "text": (
+                    rf"$\partial NLL/\partial w_{{ST}} = {float(p1):.2f}$" + "\n"
+                    rf"$\partial NLL/\partial w_{{EL}} = {float(p2):.2f}$" + "\n"
+                    rf"$\partial NLL/\partial b = {float(pb):.2f}$"
+                ),
+                "role": "gradient",
+            }
+        else:
+            roc_block = {
+                **partials_row,
+                "text": (
+                    rf"$\Delta NLL/\Delta w_{{ST}} = {float(g1):.2f}$" + "\n"
+                    rf"$\Delta NLL/\Delta w_{{EL}} = {float(g2):.2f}$" + "\n"
+                    rf"$\Delta NLL/\Delta b = {float(gb):.2f}$"
+                ),
+                "role": "roc",
+            }
+        if colors:
+            roc_block["line_text_colors"] = list(colors[:3])
+        blocks.append(roc_block)
+    return blocks
+
+
+def ch4_we_are_here_ct_blocks(
+    sweep_axis,
+    plane_val,
+    bounds,
+    *,
+    show_sweep_range: bool = False,
+) -> list[dict]:
+    """Right-rail for CT slice animation — plane value or sweep range per param."""
+    dlo1, dhi1, dlo2, dhi2, dlob, dhib = (float(v) for v in bounds)
+    row = {
+        "block_fs": CH4_HERE_BLOCK_FS,
+        "line_dy_pt": CH4_HERE_WEIGHTS_LINE_DY_PT,
+        "top_pad_pt": 0.0,
+        "label_gap_pt": 0.0,
+        "align": "left",
+        "pt_units": True,
+        "role": "weights",
+    }
+
+    def _range(lo, hi, label):
+        return f"{label} ∈ [{lo:.2f}, {hi:.2f}]"
+
+    def _val(label, v):
+        return f"{label} = {float(v):.2f}"
+
+    axis = str(sweep_axis)
+    if axis == "st":
+        w_st = _range(dlo1, dhi1, "w_ST") if show_sweep_range else _val("w_ST", plane_val)
+        w_el = _range(dlo2, dhi2, "w_EL")
+        b_line = _range(dlob, dhib, "b")
+    elif axis == "el":
+        w_st = _range(dlo1, dhi1, "w_ST")
+        w_el = _range(dlo2, dhi2, "w_EL") if show_sweep_range else _val("w_EL", plane_val)
+        b_line = _range(dlob, dhib, "b")
+    else:
+        w_st = _range(dlo1, dhi1, "w_ST")
+        w_el = _range(dlo2, dhi2, "w_EL")
+        b_line = _range(dlob, dhib, "b") if show_sweep_range else _val("b", plane_val)
+    return [{**row, "text": f"{w_st}\n{w_el}\n{b_line}"}]
 
 
 def ch4_measurements_blocks(w_st, w_el, b, nll, *, study=None, exam=None, y=None, **kw):
@@ -403,22 +830,115 @@ def _ch4_story_mathtext_block(*lines: str, **kw) -> dict:
     return base
 
 
-def ch4_formula_nll_block(**kw) -> dict:
-    """Shared NLL formula block (same placement in ch4_03 end + ch4_04–06)."""
+def _ch4_formula_hand_block(text: str, **kw) -> dict:
+    """Handwritten formula block (Patrick Hand, same as knob notation)."""
     base = dict(
-        mathtext_usetex=True,
-        mathtext_fs=CH4_FORMULA_MATH_FS,
-        mathtext_min_fs=CH4_FORMULA_MATH_FS,
+        text=str(text),
         block_fs=CH4_HERE_BLOCK_FS,
         top_pad_pt=0.0,
         text_y_inset_pt=CH4_FORMULA_NLL_DROP_PT,
+        text_x_frac=CH4_FORMULA_PRIMARY_X_FRAC,
         align="left",
         pt_units=True,
-        weight=0.30,
-        formula_slot="nll",
+        role="formula",
+        bold_lhs=True,
     )
     base.update(kw)
-    return _ch4_story_mathtext_block(CH4_NLL_FORMULA_TEX, **base)
+    return base
+
+
+def ch4_formula_primary_block(tex: str, **kw) -> dict:
+    """Primary bottom formula — handwritten."""
+    base = dict(weight=0.30, formula_slot="nll")
+    base.update(kw)
+    return _ch4_formula_hand_block(tex, **base)
+
+
+def ch4_formula_col_likelihood(**kw) -> dict:
+    base = dict(formula_slot="lik", weight=0.26, text_x_frac=0.05, bold_lhs=True)
+    base.update(kw)
+    return _ch4_formula_hand_block(CH4_LIKELIHOOD_TEX, **base)
+
+
+def ch4_formula_col_log(**kw) -> dict:
+    base = dict(
+        formula_slot="log",
+        weight=0.44,
+        text_x_frac=CH4_FORMULA_LOG_TEXT_X_FRAC,
+        text_x_shift_pt=CH4_FORMULA_CH03_LOG_NLL_X_SHIFT_PT,
+        bold_lhs=False,
+    )
+    base.update(kw)
+    return _ch4_formula_hand_block(CH4_LOG_LIK_TEX, **base)
+
+
+def ch4_formula_col_nll(**kw) -> dict:
+    base = dict(
+        formula_slot="nll_col",
+        weight=0.28,
+        text_x_frac=0.05,
+        text_x_shift_pt=CH4_FORMULA_CH03_LOG_NLL_X_SHIFT_PT,
+        bold_lhs=True,
+    )
+    base.update(kw)
+    return _ch4_formula_hand_block(CH4_NLL_FORMULA_TEX, **base)
+
+
+def ch4_formula_blocks_ch4_03_three_col() -> list[dict]:
+    """ch4_03 bottom row: likelihood | log-likelihood (single line) | NLL."""
+    return [
+        ch4_formula_col_likelihood(),
+        ch4_formula_col_log(),
+        ch4_formula_col_nll(),
+    ]
+
+
+def ch4_bottom_prog_ch4_03_three_col(
+    *,
+    lik_u: float = 1.0,
+    log_line_us: tuple[float, float] = (0.0, 0.0),
+    nll_u: float = 0.0,
+) -> dict[int, dict]:
+    """Per-block line progress for the ch4_03 three-column formula row."""
+    l0, l1 = (float(log_line_us[0]), float(log_line_us[1]))
+    split = float(CH4_LOG_LIK_SPLIT_FRAC)
+    if l1 <= 0.0:
+        log_prog = l0 * split
+    else:
+        log_prog = split + l1 * (1.0 - split)
+    return {
+        0: {0: float(lik_u)},
+        1: {0: float(log_prog)},
+        2: {0: float(nll_u)},
+    }
+
+
+def ch4_formula_nll_block(**kw) -> dict:
+    """Shared NLL formula block (ch4_03 end + ch4_04–06 left column)."""
+    base = dict(
+        formula_slot="nll",
+        weight=0.30,
+        text_x_shift_pt=CH4_FORMULA_NLL_X_SHIFT_PT,
+    )
+    base.update(kw)
+    return _ch4_formula_hand_block(CH4_NLL_FORMULA_TEX, **base)
+
+
+def ch4_formula_prob_block(**kw) -> dict:
+    """Piecewise p(y_i | x_i) with cases (ch4_03 end + ch4_04 bottom)."""
+    base = dict(
+        text_y_inset_pt=-40.0 + CH4_FORMULA_PROB_DROP_PT,
+        text_y_shift_pt=CH4_FORMULA_PROB_Y_SHIFT_PT,
+        text_x_frac=CH4_FORMULA_PROB_TEXT_X_FRAC,
+        text_x_shift_pt=CH4_FORMULA_PROB_X_SHIFT_PT,
+        weight=0.70,
+        formula_slot="prob",
+        bold_lhs=False,
+        line_dy_pt=CH4_FORMULA_LOG_LINE_DY_PT,
+        cases_row_gap_pt=CH4_CASES_ROW_GAP_PT,
+    )
+    base.update(kw)
+    return _ch4_formula_hand_block(CH4_PROB_FORMULA_TEX, **base)
 
 
 def ch4_formula_blocks_nll_story() -> list[dict]:
@@ -427,91 +947,82 @@ def ch4_formula_blocks_nll_story() -> list[dict]:
 
 def ch4_formula_grad_unit_block(**kw) -> dict:
     """Three ∂NLL formulas stacked as one movable unit (ch4_06)."""
+    partials = "\n".join([CH4_GRAD_PARTIAL_ST_TEX, CH4_GRAD_PARTIAL_EL_TEX, CH4_GRAD_PARTIAL_B_TEX])
     base = dict(
-        mathtext_usetex=True,
-        mathtext_fs=CH4_FORMULA_GRAD_MATH_FS,
-        mathtext_min_fs=round(CH4_FORMULA_GRAD_MATH_FS * 0.82, 1),
-        block_fs=CH4_HERE_BLOCK_FS,
         top_pad_pt=0.0,
         text_y_inset_pt=CH4_FORMULA_GRAD_UNIT_DROP_PT,
         text_x_frac=0.04,
         line_dy_pt=CH4_FORMULA_GRAD_LINE_DY_PT,
-        align="left",
-        pt_units=True,
-        role="formula",
+        line_row_y_pt=CH4_FORMULA_GRAD_ROW_Y_PT,
         formula_slot="grad",
         formula_grad_shift_in=CH4_FORMULA_GRAD_UNIT_SHIFT_IN,
-        mathtext_lines=[
-            CH4_GRAD_PARTIAL_ST_TEX,
-            CH4_GRAD_PARTIAL_EL_TEX,
-            CH4_GRAD_PARTIAL_B_TEX,
-        ],
+        weight=0.36,
+        bold_lhs=False,
     )
     base.update(kw)
-    return base
+    return _ch4_formula_hand_block(partials, **base)
 
 
 def ch4_formula_update_block(**kw) -> dict:
+    mlines = kw.pop("mathtext_lines", None)
+    text = kw.pop("text", None)
+    if text is None:
+        lines = mlines if mlines is not None else [
+            CH4_GRAD_UPDATE_ST_TEX,
+            CH4_GRAD_UPDATE_EL_TEX,
+            CH4_GRAD_UPDATE_B_TEX,
+        ]
+        text = "\n".join(str(ln) for ln in lines)
     base = dict(
-        mathtext_usetex=True,
-        mathtext_fs=CH4_FORMULA_GRAD_MATH_FS,
-        mathtext_min_fs=round(CH4_FORMULA_GRAD_MATH_FS * 0.78, 1),
-        block_fs=CH4_HERE_BLOCK_FS,
         top_pad_pt=0.0,
         text_y_inset_pt=CH4_FORMULA_GRAD_UNIT_DROP_PT,
         text_x_frac=0.02,
         line_dy_pt=CH4_FORMULA_GRAD_LINE_DY_PT,
-        align="left",
-        pt_units=True,
-        role="formula",
+        line_row_y_pt=CH4_FORMULA_GRAD_ROW_Y_PT,
         formula_slot="update",
         formula_grad_shift_in=CH4_FORMULA_GRAD_UNIT_SHIFT_IN,
-        mathtext_lines=[
-            CH4_GRAD_UPDATE_ST_TEX,
-            CH4_GRAD_UPDATE_EL_TEX,
-            CH4_GRAD_UPDATE_B_TEX,
-        ],
+        weight=0.34,
+        bold_lhs=False,
     )
     base.update(kw)
-    return base
+    return _ch4_formula_hand_block(text, **base)
 
 
 def ch4_notation_corner_blocks() -> list[dict]:
-    return [_ch4_notation_yi_xi_block(text_y_inset_pt=CH4_NOTATION_TEXT_DROP_PT)]
+    return [_ch4_notation_yi_xi_block(
+        text_y_inset_pt=CH4_NOTATION_TEXT_DROP_PT,
+        line_y_inset_pt={0: CH4_NOTATION_CORNER_YI_DROP_PT},
+        line_extra_dy_pt={0: CH4_NOTATION_CORNER_YI_XI_GAP_PT},
+        line_body_fs={1: CH4_NOTATION_XI_BODY_FS},
+        line_subscript_scale={1: CH4_NOTATION_XI_SUB_SCALE},
+    )]
 
 
 def ch4_formula_blocks_3d_story() -> list[dict]:
     return [
         ch4_formula_nll_block(),
-        _ch4_story_mathtext_block(
-            r"$p(y_i \mid x_i) = \begin{cases}"
-            r"\sigma(\boldsymbol{w_{\mathrm{ST}}} x_{i,\mathrm{ST}} + \boldsymbol{w_{\mathrm{EL}}} x_{i,\mathrm{EL}} + \boldsymbol{b})"
-            r" & \text{if student i passed} \\[1.0em]"
-            r"1 - \sigma(\boldsymbol{w_{\mathrm{ST}}} x_{i,\mathrm{ST}} + \boldsymbol{w_{\mathrm{EL}}} x_{i,\mathrm{EL}} + \boldsymbol{b})"
-            r" & \text{if student i failed} \end{cases}$",
-            mathtext_fs=CH4_FORMULA_MATH_FS,
-            mathtext_min_fs=CH4_FORMULA_MATH_FS,
-            block_fs=CH4_HERE_BLOCK_FS,
-            top_pad_pt=0.0,
-            text_y_inset_pt=-40.0 + CH4_FORMULA_PROB_DROP_PT,
-            text_x_frac=CH4_FORMULA_PROB_TEXT_X_FRAC,
-            align="left",
-            weight=0.70,
-        ),
+        ch4_formula_prob_block(),
     ]
 
 
-def ch4_formula_blocks_gd_story(*, bold_update_idx: int | None = None) -> list[dict]:
+def ch4_formula_blocks_gd_story(
+    *,
+    bold_update_idx: int | None = None,
+    bold_all_updates: bool = False,
+    grad_red: bool = False,
+) -> list[dict]:
     updates = [CH4_GRAD_UPDATE_ST_TEX, CH4_GRAD_UPDATE_EL_TEX, CH4_GRAD_UPDATE_B_TEX]
-    if bold_update_idx is not None:
+    if bold_all_updates:
+        updates = [f"*{u}*" for u in updates]
+    elif bold_update_idx is not None:
         i = int(bold_update_idx)
         if 0 <= i < len(updates):
             updates = list(updates)
-            updates[i] = ch4_bold_mathtext(updates[i])
+            updates[i] = f"*{updates[i]}*"
     return [
         ch4_formula_nll_block(),
-        ch4_formula_grad_unit_block(mathtext_line_colors=list(CH4_GD_PARTIAL_COLORS)),
-        ch4_formula_update_block(mathtext_lines=updates),
+        ch4_formula_grad_unit_block(),
+        ch4_formula_update_block(text="\n".join(updates)),
     ]
 
 
@@ -602,6 +1113,25 @@ def ch4_compose_tutorial_frame(
         title_write_progress=title_write_progress,
         rails_cache_key=rails_cache_key,
     )
+
+
+def ch4_bottom_per_block_progress(
+    blocks: list[dict],
+    progress_by_idx: dict[int, float],
+    *,
+    style=None,
+) -> dict[int, dict]:
+    """Per-block write/erase progress for bottom formula columns."""
+    import handwrite_tutorial as hw
+
+    style = style or CH4_COMPOSER.handwrite_style()
+    out: dict[int, dict] = {}
+    for bi, block in enumerate(blocks):
+        p = float(progress_by_idx.get(bi, 1.0))
+        bp = hw.block_write_progress([block], p, style=style)
+        if 0 in bp:
+            out[bi] = bp[0]
+    return out
 
 
 def ch4_group_write_from_slot(block_groups, start_slot: int, progress: float, *, style=None):
