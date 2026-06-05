@@ -142,7 +142,8 @@ def ch4_duo_partial_layout_tune(
 
 
 CH4_RAILS_CACHE_3D = "ch4_lik_3d_v13"
-CH4_RAILS_CACHE_GD = "ch4_lik_gd_v8"
+CH4_RAILS_CACHE_GD = "ch4_lik_gd_v9"
+CH4_RAILS_CACHE_SHELL = "ch4_lik_shell_v1"
 
 
 def ch4_rails_cache_key_gd(
@@ -490,7 +491,7 @@ CH4_PROB_FORMULA_TEX = (
 )
 CH4_FORMULA_GRAD_UNIT_SHIFT_IN = 3.0 / 2.54   # shift ∂ column right (+1 cm)
 CH4_FORMULA_GRAD_UNIT_BASE_DROP_MM = 12.0
-CH4_FORMULA_GRAD_UNIT_LIFT_MM = 15.0          # +1 mm lower on page vs prior
+CH4_FORMULA_GRAD_UNIT_LIFT_MM = 13.0          # lower on page → larger effective drop (+2 mm vs prior)
 CH4_FORMULA_GRAD_UNIT_DROP_MM = CH4_FORMULA_GRAD_UNIT_BASE_DROP_MM - CH4_FORMULA_GRAD_UNIT_LIFT_MM
 CH4_FORMULA_GRAD_UNIT_DROP_PT = CH4_FORMULA_GRAD_UNIT_DROP_MM * 72.0 / 25.4
 CH4_FORMULA_GRAD_LINE_DY_MM = 3.5             # spacing within ∂ / update columns
@@ -1005,6 +1006,16 @@ def ch4_formula_blocks_3d_story() -> list[dict]:
     ]
 
 
+def _ch4_bold_handwrite_line(tex: str) -> str:
+    """Wrap a ``$...$`` formula line for Patrick Hand bold (``<<B>>`` markers)."""
+    from handwrite_tutorial import BOLD_CLOSE, BOLD_OPEN
+
+    s = str(tex).strip()
+    if s.startswith("$") and s.endswith("$"):
+        s = s[1:-1].strip()
+    return f"{BOLD_OPEN}{s}{BOLD_CLOSE}"
+
+
 def ch4_formula_blocks_gd_story(
     *,
     bold_update_idx: int | None = None,
@@ -1013,12 +1024,12 @@ def ch4_formula_blocks_gd_story(
 ) -> list[dict]:
     updates = [CH4_GRAD_UPDATE_ST_TEX, CH4_GRAD_UPDATE_EL_TEX, CH4_GRAD_UPDATE_B_TEX]
     if bold_all_updates:
-        updates = [f"*{u}*" for u in updates]
+        updates = [_ch4_bold_handwrite_line(u) for u in updates]
     elif bold_update_idx is not None:
         i = int(bold_update_idx)
         if 0 <= i < len(updates):
             updates = list(updates)
-            updates[i] = f"*{updates[i]}*"
+            updates[i] = _ch4_bold_handwrite_line(updates[i])
     return [
         ch4_formula_nll_block(),
         ch4_formula_grad_unit_block(),
@@ -1087,6 +1098,7 @@ def ch4_compose_tutorial_frame(
     corner_title=None,
     right_title_color=None,
     rails_cache_key=None,
+    shell_cache_key=None,
     **_ignored,
 ):
     comp = composer or (make_composer(theme) if theme else CH4_COMPOSER)
@@ -1112,6 +1124,7 @@ def ch4_compose_tutorial_frame(
         plot_alpha=plot_alpha,
         title_write_progress=title_write_progress,
         rails_cache_key=rails_cache_key,
+        shell_cache_key=shell_cache_key,
     )
 
 

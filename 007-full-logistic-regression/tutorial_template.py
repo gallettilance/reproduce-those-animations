@@ -834,6 +834,84 @@ class TutorialComposer:
         self._rails_overlay_cache[cache_key] = overlay
         return overlay
 
+    def _render_static_shell_rails(
+        self,
+        scene: TutorialScene,
+        *,
+        panel_u: float,
+        title_u: float,
+        cache_key: str,
+    ) -> Image.Image:
+        """Backgrounds, section titles, corner notation (no plot / right values / bottom formulas)."""
+        if cache_key in self._rails_overlay_cache:
+            return self._rails_overlay_cache[cache_key]
+
+        T = self.theme
+        canvas_bg = T.rail_fill()
+        fig = plt.figure(figsize=self.export.figsize, facecolor=canvas_bg)
+        rects = self.layout_rects(fig)
+        self._draw_backgrounds(fig, rects, panel_u=float(panel_u))
+        style = self.handwrite_style()
+        ty = self.typography
+
+        if scene.math_right_blocks and float(panel_u) > 1e-4:
+            tw = rects["math_right_title_width"]
+            rt_color = scene.right_title_color if scene.right_title_color else T.right_title_color
+            hw.draw_section_title(
+                fig, rects["math_right_title"], scene.right_section_title,
+                style=style, ha="left", va="top", max_width_frac=tw,
+                write_progress=min(1.0, title_u * ty.title_reveal_boost),
+                pad_frac=self.layout.region_pad * 0.55,
+                title_fs=ty.right_section_title_fs,
+                title_color=rt_color,
+            )
+
+        if scene.math_corner_blocks and float(panel_u) > 1e-4:
+            ctw = rects["math_corner_title_width"]
+            hw.draw_section_title(
+                fig, rects["math_corner_title"], scene.corner_section_title,
+                style=style, ha="left", va="top", max_width_frac=ctw,
+                write_progress=min(1.0, title_u),
+                pad_frac=self.layout.region_pad * 0.18,
+                title_fs=ty.right_section_title_fs,
+                title_color=T.bottom_title_color,
+            )
+            corner_rects = self._corner_block_rects_cache.get(cache_key)
+            if corner_rects is None:
+                corner_rects = self._right_block_rects(
+                    fig, scene.math_corner_blocks, rects["math_corner_content"],
+                    row_gap_frac=self.layout.corner_row_gap_frac,
+                )
+                self._corner_block_rects_cache[cache_key] = corner_rects
+            for bi, (block, rect) in enumerate(zip(scene.math_corner_blocks, corner_rects)):
+                ax = fig.add_axes(rect, zorder=2, facecolor="none")
+                ax.set_clip_on(False)
+                colors = T.block_colors(block, region="right")
+                hw.draw_block_cell(
+                    ax, block, style=style,
+                    block_fs=float(block.get("block_fs", ty.right_block_fs)),
+                    label_fs=float(block.get("label_fs", ty.right_label_fs)),
+                    align=str(block.get("align", "left")),
+                    line_progress={}, show_frame=bool(T.frame_edge),
+                    text_x_frac=0.04,
+                    text_y_inset_pt=float(block.get("text_y_inset_pt", 0.0)),
+                    **colors,
+                )
+
+        if scene.math_bottom_blocks and float(panel_u) > 1e-4:
+            tw = rects["math_bottom_title_width"]
+            hw.draw_section_title(
+                fig, rects["math_bottom_title"], scene.bottom_section_title,
+                style=style, ha="left", va="top", max_width_frac=tw,
+                write_progress=min(1.0, title_u),
+                pad_frac=self.layout.region_pad,
+                title_fs=ty.bottom_section_title_fs, title_color=T.bottom_title_color,
+            )
+
+        overlay = self.fig_to_image(fig)
+        self._rails_overlay_cache[cache_key] = overlay
+        return overlay
+
     def _render_plot_and_right_overlay(
         self,
         scene: TutorialScene,
@@ -894,6 +972,88 @@ class TutorialComposer:
 
         return self.fig_to_image(fig, transparent=True)
 
+    def _render_plot_right_bottom_overlay(
+        self,
+        scene: TutorialScene,
+        *,
+        plot_rect,
+        plot_alpha: float,
+        prog: dict,
+        title_u: float,
+        panel_u: float,
+        right_rects_key: str | None,
+        bottom_rects_key: str | None,
+    ) -> Image.Image:
+        """Plot + optional right/bottom blocks on a transparent layer."""
+        T = self.theme
+        fig = plt.figure(figsize=self.export.figsize, facecolor="none")
+        fig.patch.set_alpha(0.0)
+        style = self.handwrite_style()
+        ty = self.typography
+
+        if scene.plot is not None:
+            ax_plot = fig.add_axes(plot_rect, zorder=1)
+            pa = float(np.clip(float(plot_alpha), 0.0, 1.0))
+            ax_plot.imshow(scene.plot, aspect="auto", interpolation="lanczos", alpha=pa)
+            ax_plot.set_axis_off()
+            ax_plot.set_facecolor("none")
+            if T.frame_edge:
+                for spine in ax_plot.spines.values():
+                    spine.set_visible(True)
+                    spine.set_edgecolor(T.frame_edge)
+                    spine.set_linewidth(1.0)
+
+        rects = self.layout_rects(fig)
+        if scene.math_right_blocks and float(panel_u) > 1e-4:
+            block_rects = None
+            if right_rects_key:
+                block_rects = self._right_block_rects_cache.get(right_rects_key)
+            if block_rects is None:
+                block_rects = self._right_block_rects(
+                    fig, scene.math_right_blocks, rects["math_right_content"],
+                )
+                if right_rects_key:
+                    self._right_block_rects_cache[right_rects_key] = block_rects
+            per = prog.get("right", {})
+            for bi, (block, rect) in enumerate(zip(scene.math_right_blocks, block_rects)):
+                ax = fig.add_axes(rect, zorder=2, facecolor="none")
+                ax.set_clip_on(False)
+                colors = T.block_colors(block, region="right")
+                hw.draw_block_cell(
+                    ax, block, style=style,
+                    block_fs=float(block.get("block_fs", ty.right_block_fs)),
+                    label_fs=float(block.get("label_fs", ty.right_label_fs)),
+                    align=str(block.get("align", "left")),
+                    line_progress=per.get(bi, {}), show_frame=bool(T.frame_edge),
+                    text_x_frac=0.07 + self.layout.right_text_inset_frac,
+                    text_y_inset_pt=float(block.get("text_y_inset_pt", -5.0)),
+                    **colors,
+                )
+
+        if scene.math_bottom_blocks and float(panel_u) > 1e-4:
+            bottom_rects = None
+            if bottom_rects_key:
+                bottom_rects = self._bottom_block_rects_cache.get(bottom_rects_key)
+            if bottom_rects is None:
+                bottom_rects = self._bottom_block_rects(
+                    fig, scene.math_bottom_blocks, rects["math_bottom_content"],
+                )
+                if bottom_rects_key:
+                    self._bottom_block_rects_cache[bottom_rects_key] = bottom_rects
+            per = prog.get("bottom", {})
+            self._draw_bottom_blocks_overlay(
+                fig,
+                scene.math_bottom_blocks,
+                rects["math_bottom_content"],
+                per,
+                style=style,
+                ty=ty,
+                T=T,
+                bottom_rects=bottom_rects,
+            )
+
+        return self.fig_to_image(fig, transparent=True)
+
     def _compose_frame_cached_rails(
         self,
         scene: TutorialScene,
@@ -905,20 +1065,28 @@ class TutorialComposer:
         bottom_write_progress: float | None,
         plot_alpha: float,
         title_write_progress: float | None,
+        progress_override: dict | None = None,
     ) -> Image.Image:
         title_u = self._title_u(panel_u, title_write_progress)
         static = self._render_static_rails(
             scene, panel_u=panel_u, title_u=title_u, cache_key=cache_key,
         )
         block_write = float(write_progress) if float(panel_u) >= 1.0 - 1e-9 else 0.0
-        prog = self._write_progress_groups(
-            scene.math_right_blocks,
-            None,
-            block_write,
-            corner_blocks=None,
-            right_progress=right_write_progress,
-            bottom_progress=bottom_write_progress,
-        )
+        if progress_override is not None and "right" in progress_override:
+            prog = {
+                "right": progress_override["right"],
+                "corner": {},
+                "bottom": {},
+            }
+        else:
+            prog = self._write_progress_groups(
+                scene.math_right_blocks,
+                None,
+                block_write,
+                corner_blocks=None,
+                right_progress=right_write_progress,
+                bottom_progress=bottom_write_progress,
+            )
         dynamic = self._render_plot_and_right_overlay(
             scene,
             plot_rect=self.layout_rects()["plot"],
@@ -927,6 +1095,46 @@ class TutorialComposer:
             title_u=title_u,
             panel_u=panel_u,
             right_rects_key=f"{cache_key}:right",
+        )
+        base = static.convert("RGBA")
+        return Image.alpha_composite(base, dynamic.convert("RGBA")).convert("RGB")
+
+    def _compose_frame_cached_shell_rails(
+        self,
+        scene: TutorialScene,
+        shell_key: str,
+        *,
+        write_progress: float,
+        panel_u: float,
+        plot_alpha: float,
+        title_write_progress: float | None,
+        progress_override: dict,
+    ) -> Image.Image:
+        title_u = self._title_u(panel_u, title_write_progress)
+        static = self._render_static_shell_rails(
+            scene, panel_u=panel_u, title_u=title_u, cache_key=shell_key,
+        )
+        block_write = float(write_progress) if float(panel_u) >= 1.0 - 1e-9 else 0.0
+        full = self._write_progress_groups(
+            scene.math_right_blocks,
+            scene.math_bottom_blocks,
+            block_write,
+            corner_blocks=None,
+        )
+        prog = {
+            "right": progress_override.get("right", full.get("right", {})),
+            "bottom": progress_override.get("bottom", full.get("bottom", {})),
+            "corner": {},
+        }
+        dynamic = self._render_plot_right_bottom_overlay(
+            scene,
+            plot_rect=self.layout_rects()["plot"],
+            plot_alpha=plot_alpha,
+            prog=prog,
+            title_u=title_u,
+            panel_u=panel_u,
+            right_rects_key=f"{shell_key}:right",
+            bottom_rects_key=f"{shell_key}:b{len(scene.math_bottom_blocks)}",
         )
         base = static.convert("RGBA")
         return Image.alpha_composite(base, dynamic.convert("RGBA")).convert("RGB")
@@ -945,17 +1153,19 @@ class TutorialComposer:
         plot_alpha: float = 1.0,
         title_write_progress: float | None = None,
         rails_cache_key: str | None = None,
+        shell_cache_key: str | None = None,
     ) -> Image.Image:
+        po_keys = set(progress_override.keys()) if progress_override else set()
         if (
             rails_cache_key
             and scene.plot is not None
             and float(layout_u) >= 1.0 - 1e-9
             and plot_start_rect is None
-            and progress_override is None
             and float(panel_u) >= 1.0 - 1e-9
             and float(write_progress) >= 1.0 - 1e-9
             and right_write_progress is None
             and bottom_write_progress is None
+            and po_keys <= {"right"}
         ):
             return self._compose_frame_cached_rails(
                 scene,
@@ -966,6 +1176,29 @@ class TutorialComposer:
                 bottom_write_progress=bottom_write_progress,
                 plot_alpha=plot_alpha,
                 title_write_progress=title_write_progress,
+                progress_override=progress_override,
+            )
+        if (
+            shell_cache_key
+            and scene.plot is not None
+            and float(layout_u) >= 1.0 - 1e-9
+            and plot_start_rect is None
+            and float(panel_u) >= 1.0 - 1e-9
+            and float(write_progress) >= 1.0 - 1e-9
+            and right_write_progress is None
+            and bottom_write_progress is None
+            and progress_override is not None
+            and po_keys <= {"bottom", "right"}
+            and "bottom" in po_keys
+        ):
+            return self._compose_frame_cached_shell_rails(
+                scene,
+                shell_cache_key,
+                write_progress=write_progress,
+                panel_u=panel_u,
+                plot_alpha=plot_alpha,
+                title_write_progress=title_write_progress,
+                progress_override=progress_override,
             )
 
         T = self.theme
