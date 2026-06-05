@@ -144,6 +144,7 @@ class TutorialScene:
     bottom_section_title: str = "Key formulas"
     corner_section_title: str = "Notation"
     right_title_color: str | None = None
+    right_title_single_line: bool = False
 
 
 DEFAULT_EXPORT = TutorialExport()
@@ -768,6 +769,7 @@ class TutorialComposer:
                 pad_frac=self.layout.region_pad * 0.55,
                 title_fs=ty.right_section_title_fs,
                 title_color=rt_color,
+                single_line=bool(scene.right_title_single_line),
             )
 
         if scene.math_corner_blocks and float(panel_u) > 1e-4:
@@ -864,6 +866,7 @@ class TutorialComposer:
                 pad_frac=self.layout.region_pad * 0.55,
                 title_fs=ty.right_section_title_fs,
                 title_color=rt_color,
+                single_line=bool(scene.right_title_single_line),
             )
 
         if scene.math_corner_blocks and float(panel_u) > 1e-4:
@@ -1248,6 +1251,7 @@ class TutorialComposer:
                 pad_frac=self.layout.region_pad * 0.55,
                 title_fs=ty.right_section_title_fs,
                 title_color=rt_color,
+                single_line=bool(scene.right_title_single_line),
             )
             per = prog.get("right", {})
             for bi, (block, rect) in enumerate(

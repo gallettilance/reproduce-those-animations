@@ -431,6 +431,109 @@ def ch4_nll_heatmap_facecolors(values, *, vmin=None, vmax=None, alpha=1.0, pct=N
     return rgba
 
 
+CH4_NLL_HEATMAP_SECTION_TITLE = "NLL color scale"
+CH4_NLL_HEATMAP_LEGEND_BAR_WEIGHT = 0.52
+
+
+def _ch4_nll_heatmap_legend_fmt(nll) -> str:
+    return f"{float(nll):.1f}"
+
+
+def ch4_nll_heatmap_legend_blocks(nll_lo, nll_hi) -> list[dict]:
+    """Right-rail legend for NLL-colored voxels / heatmaps (low = good, high = bad)."""
+    lo = float(nll_lo)
+    hi = float(nll_hi)
+    return [{
+        "block_fs": CH4_HERE_BLOCK_FS,
+        "line_dy_pt": CH4_HERE_WEIGHTS_LINE_DY_PT,
+        "top_pad_pt": 0.0,
+        "label_gap_pt": 0.0,
+        "align": "left",
+        "pt_units": True,
+        "role": "legend",
+        "weight": CH4_NLL_HEATMAP_LEGEND_BAR_WEIGHT,
+        "nll_colorbar": True,
+        "nll_lo": lo,
+        "nll_hi": hi,
+        "label_lo": f"{_ch4_nll_heatmap_legend_fmt(lo)}  (better)",
+        "label_hi": f"{_ch4_nll_heatmap_legend_fmt(hi)}  (worse)",
+    }]
+
+
+def ch4_draw_nll_colorbar_cell(
+    ax,
+    block: dict,
+    *,
+    style: hw.HandwriteStyle,
+    block_fs: float,
+    text_color: str | None = None,
+):
+    """Vertical NLL color strip + numeric endpoints (matches voxel / CT heatmap)."""
+    import numpy as np
+    from matplotlib.patches import Rectangle
+
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.axis("off")
+    ax.set_facecolor("none")
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+    bar_x = 0.10
+    bar_w = 0.16
+    bar_y0 = 0.06
+    bar_y1 = 0.94
+    n = 256
+    t = np.linspace(0.0, 1.0, n, dtype=np.float64)
+    rgba = ch4_nll_heatmap_cmap()(t).reshape(n, 1, 4)
+    ax.imshow(
+        rgba,
+        extent=(bar_x, bar_x + bar_w, bar_y0, bar_y1),
+        aspect="auto",
+        origin="lower",
+        interpolation="bilinear",
+        zorder=1,
+    )
+    ax.add_patch(
+        Rectangle(
+            (bar_x, bar_y0),
+            bar_w,
+            bar_y1 - bar_y0,
+            transform=ax.transAxes,
+            fill=False,
+            edgecolor="#666666",
+            linewidth=0.9,
+            zorder=2,
+        )
+    )
+
+    fs = float(block.get("block_fs", block_fs)) * 0.88
+    fp = hw.hand_font(fs) if style.enabled else None
+    label_x = bar_x + bar_w + 0.05
+    ax.text(
+        label_x,
+        bar_y1,
+        str(block.get("label_hi", _ch4_nll_heatmap_legend_fmt(block["nll_hi"]))),
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+        fontsize=fs,
+        color=CH4_NLL_HEATMAP_COLORS[-1],
+        fontproperties=fp,
+    )
+    ax.text(
+        label_x,
+        bar_y0,
+        str(block.get("label_lo", _ch4_nll_heatmap_legend_fmt(block["nll_lo"]))),
+        transform=ax.transAxes,
+        ha="left",
+        va="bottom",
+        fontsize=fs,
+        color=CH4_NLL_HEATMAP_COLORS[2],
+        fontproperties=fp,
+    )
+
+
 def ch4_nll_viridis_color(nll, vmin, vmax, *, cmap_name: str = "viridis") -> str:
     del cmap_name  # kept for call-site compatibility
     return ch4_nll_heatmap_color(nll, vmin, vmax)
@@ -1097,6 +1200,7 @@ def ch4_compose_tutorial_frame(
     bottom_title=None,
     corner_title=None,
     right_title_color=None,
+    right_title_single_line=False,
     rails_cache_key=None,
     shell_cache_key=None,
     **_ignored,
@@ -1111,6 +1215,7 @@ def ch4_compose_tutorial_frame(
         bottom_section_title=bottom_title if bottom_title is not None else bottom_section_title,
         corner_section_title=corner_title if corner_title is not None else CH4_NOTATION_SECTION_TITLE,
         right_title_color=right_title_color,
+        right_title_single_line=bool(right_title_single_line),
     )
     return comp.compose_frame(
         scene,

@@ -1436,7 +1436,10 @@ def text_width_px(renderer, text, fontsize, *, bold=False, is_math=None, fontpro
 
 def wrap_plain_text_px(renderer, text, fontsize, max_w_px, *, bold=False, style=None):
     style = style or HandwriteStyle()
-    words = str(text).split()
+    s = str(text)
+    if text_width_px(renderer, s, fontsize, bold=bold, is_math=False, style=style) <= max_w_px:
+        return [s]
+    words = s.split()
     if not words:
         return []
     lines, cur = [], []
@@ -1485,6 +1488,25 @@ def section_title_band_frac(fig, title, max_width_frac, *, style: HandwriteStyle
     return total_px / float(fig.bbox.height)
 
 
+def fit_plain_fontsize(
+    renderer,
+    text,
+    max_w_px: float,
+    start_fs: float,
+    *,
+    min_fs: float = 18.0,
+    bold: bool = False,
+    style: HandwriteStyle | None = None,
+) -> float:
+    style = style or HandwriteStyle()
+    fs = float(start_fs)
+    while fs > float(min_fs) and text_width_px(
+        renderer, str(text), fs, bold=bold, is_math=False, style=style,
+    ) > float(max_w_px):
+        fs -= 0.5
+    return fs
+
+
 def draw_section_title(
     fig,
     xy,
@@ -1498,12 +1520,22 @@ def draw_section_title(
     pad_frac: float = 0.010,
     title_fs: float | None = None,
     title_color: str | None = None,
+    single_line: bool = False,
 ):
     fs = float(style.section_title_fs if title_fs is None else title_fs)
     color = title_color if title_color is not None else style.title_color
     if max_width_frac is None:
         max_width_frac = max(1.0 - float(xy[0]) - pad_frac, 0.05)
-    lines = section_title_lines(fig, title, max_width_frac, style=style, title_fs=fs)
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    max_w_px = float(max_width_frac) * float(fig.bbox.width)
+    if single_line:
+        fs = fit_plain_fontsize(
+            renderer, title, max_w_px, fs, bold=style.section_title_bold, style=style,
+        )
+        lines = [str(title)]
+    else:
+        lines = section_title_lines(fig, title, max_width_frac, style=style, title_fs=fs)
     x, y = xy
     fig.canvas.draw()
     renderer = fig.canvas.get_renderer()
@@ -1547,6 +1579,18 @@ def draw_block_cell(
     text_x_frac: float | None = None,
     text_y_inset_pt: float = 0.0,
 ):
+    if block.get("nll_colorbar"):
+        from ch4_layout import ch4_draw_nll_colorbar_cell
+
+        ch4_draw_nll_colorbar_cell(
+            ax,
+            block,
+            style=style,
+            block_fs=block_fs,
+            text_color=text_color,
+        )
+        return
+
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.axis("off")
