@@ -433,6 +433,7 @@ def ch4_nll_heatmap_facecolors(values, *, vmin=None, vmax=None, alpha=1.0, pct=N
 
 CH4_NLL_HEATMAP_SECTION_TITLE = "NLL color scale"
 CH4_NLL_HEATMAP_LEGEND_BAR_WEIGHT = 0.52
+CH4_NLL_COLORBAR_W_FRAC = 0.08
 
 
 def _ch4_nll_heatmap_legend_fmt(nll) -> str:
@@ -479,8 +480,12 @@ def ch4_draw_nll_colorbar_cell(
     for spine in ax.spines.values():
         spine.set_visible(False)
 
-    bar_x = 0.10
-    bar_w = 0.16
+    from tutorial_template import TutorialLayout
+
+    inset = float(TutorialLayout().right_text_inset_frac)
+    ax_w = max(float(ax.get_position().width), 1e-6)
+    bar_x = inset / ax_w
+    bar_w = float(block.get("colorbar_w_frac", CH4_NLL_COLORBAR_W_FRAC))
     bar_y0 = 0.06
     bar_y1 = 0.94
     n = 256
@@ -509,7 +514,7 @@ def ch4_draw_nll_colorbar_cell(
 
     fs = float(block.get("block_fs", block_fs)) * 0.88
     fp = hw.hand_font(fs) if style.enabled else None
-    label_x = bar_x + bar_w + 0.05
+    label_x = bar_x + bar_w + 0.04
     ax.text(
         label_x,
         bar_y1,

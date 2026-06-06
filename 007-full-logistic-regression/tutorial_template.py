@@ -649,6 +649,16 @@ class TutorialComposer:
         renderer = fig.canvas.get_renderer()
         raw = []
         for block in blocks:
+            if block.get("nll_colorbar"):
+                w = float(block.get("weight", 0.0))
+                if w > 0.0:
+                    raw.append(max(w * total_h + 2.0 * pad_each, pad_each))
+                    continue
+                total_px = float(block.get("colorbar_height_pt", 105.0))
+                total_px += float(block.get("top_pad_pt", style.top_pad_pt)) + float(style.bottom_pad_pt)
+                h = total_px / float(fig.bbox.height)
+                raw.append(max(h + 2.0 * pad_each, pad_each))
+                continue
             h = float(block.get("weight", 0.0))
             if h <= 0.0:
                 st = style
@@ -672,7 +682,12 @@ class TutorialComposer:
                 h = total_px / float(fig.bbox.height)
             raw.append(max(h + 2.0 * pad_each, pad_each))
         gaps_total = gap * max(len(raw) - 1, 0)
-        need_h = sum(raw) + gaps_total
+        pre_gap_h = 0.0
+        for i in range(1, len(blocks)):
+            pg = float(blocks[i].get("pre_gap_pt", 0.0))
+            if pg:
+                pre_gap_h += hw.block_pt_to_px(fig, blocks[i], pg) / float(fig.bbox.height)
+        need_h = sum(raw) + gaps_total + pre_gap_h
         scale = 1.0 if need_h <= total_h else min(1.0, max(total_h, 1e-6) / max(need_h, 1e-6))
         rects, y = [], y0 + total_h
         for i, (block, h) in enumerate(zip(blocks, raw)):
