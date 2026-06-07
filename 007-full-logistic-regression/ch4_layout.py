@@ -142,25 +142,29 @@ def ch4_duo_partial_layout_tune(
 
 
 CH4_RAILS_CACHE_3D = "ch4_lik_3d_v13"
-CH4_RAILS_CACHE_GD = "ch4_lik_gd_v9"
+CH4_RAILS_CACHE_GD = "ch4_lik_gd_v10"
 CH4_RAILS_CACHE_SHELL = "ch4_lik_shell_v1"
 
 
 def ch4_rails_cache_key_gd(
     *,
+    highlight_update_idx: int | None = None,
+    highlight_all: bool = False,
+    grad_red: bool = False,
     bold_update_idx: int | None = None,
     bold_all: bool = False,
-    grad_red: bool = False,
 ) -> str:
     """Cache key for a GD bottom-rail variant (corner + formulas, static per variant)."""
-    if bold_all:
-        bold_tag = "all"
-    elif bold_update_idx is None:
-        bold_tag = "none"
+    hi = highlight_update_idx if highlight_update_idx is not None else bold_update_idx
+    hall = highlight_all or bold_all
+    if hall:
+        tag = "all"
+    elif hi is None:
+        tag = "none"
     else:
-        bold_tag = str(int(bold_update_idx))
+        tag = str(int(hi))
     color_tag = "red" if grad_red else "rgb"
-    return f"{CH4_RAILS_CACHE_GD}_{bold_tag}_{color_tag}"
+    return f"{CH4_RAILS_CACHE_GD}_{tag}_{color_tag}"
 
 _CH4_CACHED_GD_BOTTOM: list[dict] | None = None
 _CH4_CACHED_3D_BOTTOM: list[dict] | None = None
@@ -809,6 +813,9 @@ def ch4_we_are_here_roc_blocks(
     show_partials: bool = False,
     partials=None,
     grad_line_colors=None,
+    partial_lines_show: int = 3,
+    show_alpha: bool = False,
+    step_size=None,
 ) -> list[dict]:
     """Right-rail: weights + NLL + average rate-of-change (or ∂ lines when ``show_partials``)."""
     row = {
@@ -855,28 +862,34 @@ def ch4_we_are_here_roc_blocks(
         colors = list(grad_line_colors) if grad_line_colors is not None else list(CH4_GD_PARTIAL_COLORS)
         if show_partials and partials is not None:
             p1, p2, pb = partials
-            roc_block = {
-                **partials_row,
-                "text": (
-                    rf"$\partial NLL/\partial w_{{ST}} = {float(p1):.2f}$" + "\n"
-                    rf"$\partial NLL/\partial w_{{EL}} = {float(p2):.2f}$" + "\n"
-                    rf"$\partial NLL/\partial b = {float(pb):.2f}$"
-                ),
-                "role": "gradient",
-            }
+            lines = [
+                rf"$\partial NLL/\partial w_{{ST}} = {float(p1):.2f}$",
+                rf"$\partial NLL/\partial w_{{EL}} = {float(p2):.2f}$",
+                rf"$\partial NLL/\partial b = {float(pb):.2f}$",
+            ]
         else:
+            lines = [
+                rf"$\Delta NLL/\Delta w_{{ST}} = {float(g1):.2f}$",
+                rf"$\Delta NLL/\Delta w_{{EL}} = {float(g2):.2f}$",
+                rf"$\Delta NLL/\Delta b = {float(gb):.2f}$",
+            ]
+        n_show = max(0, min(int(partial_lines_show), len(lines)))
+        if n_show > 0:
             roc_block = {
                 **partials_row,
-                "text": (
-                    rf"$\Delta NLL/\Delta w_{{ST}} = {float(g1):.2f}$" + "\n"
-                    rf"$\Delta NLL/\Delta w_{{EL}} = {float(g2):.2f}$" + "\n"
-                    rf"$\Delta NLL/\Delta b = {float(gb):.2f}$"
-                ),
-                "role": "roc",
+                "text": "\n".join(lines[:n_show]),
+                "role": "gradient" if show_partials else "roc",
             }
-        if colors:
-            roc_block["line_text_colors"] = list(colors[:3])
-        blocks.append(roc_block)
+            if colors:
+                roc_block["line_text_colors"] = list(colors[:n_show])
+            blocks.append(roc_block)
+    if show_alpha and step_size is not None:
+        blocks.append({
+            **row,
+            "text": f"α = {_ch4_fmt_step_size(step_size)}",
+            "pre_gap_pt": CH4_HERE_ALPHA_PRE_GAP_PT,
+            "role": "gradient",
+        })
     return blocks
 
 
@@ -1056,7 +1069,9 @@ def ch4_formula_blocks_nll_story() -> list[dict]:
 
 def ch4_formula_grad_unit_block(**kw) -> dict:
     """Three ∂NLL formulas stacked as one movable unit (ch4_06)."""
-    partials = "\n".join([CH4_GRAD_PARTIAL_ST_TEX, CH4_GRAD_PARTIAL_EL_TEX, CH4_GRAD_PARTIAL_B_TEX])
+    text = kw.pop("text", None)
+    if text is None:
+        text = "\n".join([CH4_GRAD_PARTIAL_ST_TEX, CH4_GRAD_PARTIAL_EL_TEX, CH4_GRAD_PARTIAL_B_TEX])
     base = dict(
         top_pad_pt=0.0,
         text_y_inset_pt=CH4_FORMULA_GRAD_UNIT_DROP_PT,
@@ -1069,7 +1084,7 @@ def ch4_formula_grad_unit_block(**kw) -> dict:
         bold_lhs=False,
     )
     base.update(kw)
-    return _ch4_formula_hand_block(partials, **base)
+    return _ch4_formula_hand_block(text, **base)
 
 
 def ch4_formula_update_block(**kw) -> dict:
@@ -1126,23 +1141,43 @@ def _ch4_bold_handwrite_line(tex: str) -> str:
 
 def ch4_formula_blocks_gd_story(
     *,
+    highlight_update_idx: int | None = None,
+    highlight_all_updates: bool = False,
+    grad_red: bool = False,
     bold_update_idx: int | None = None,
     bold_all_updates: bool = False,
-    grad_red: bool = False,
 ) -> list[dict]:
+    hi = highlight_update_idx if highlight_update_idx is not None else bold_update_idx
+    hall = highlight_all_updates or bold_all_updates
     updates = [CH4_GRAD_UPDATE_ST_TEX, CH4_GRAD_UPDATE_EL_TEX, CH4_GRAD_UPDATE_B_TEX]
-    if bold_all_updates:
-        updates = [_ch4_bold_handwrite_line(u) for u in updates]
-    elif bold_update_idx is not None:
-        i = int(bold_update_idx)
-        if 0 <= i < len(updates):
-            updates = list(updates)
-            updates[i] = _ch4_bold_handwrite_line(updates[i])
+    line_colors = [None, None, None]
+    if hall:
+        c = CH4_GD_GRADIENT_COLOR if grad_red else CH4_GD_GRADIENT_COLOR
+        line_colors = [c, c, c]
+    elif hi is not None and 0 <= int(hi) < len(updates):
+        line_colors[int(hi)] = CH4_GD_PARTIAL_COLORS[int(hi)]
+    update_kw = {}
+    if any(c is not None for c in line_colors):
+        update_kw["line_text_colors"] = line_colors
     return [
         ch4_formula_nll_block(),
         ch4_formula_grad_unit_block(),
-        ch4_formula_update_block(text="\n".join(updates)),
+        ch4_formula_update_block(text="\n".join(updates), **update_kw),
     ]
+
+
+def ch4_formula_blocks_gd_progressive(*, n_grad_lines: int = 0, n_update_lines: int = 0) -> list[dict]:
+    """Bottom formulas for staged ∂ / update reveals (ch4_05b)."""
+    grad_tex = [CH4_GRAD_PARTIAL_ST_TEX, CH4_GRAD_PARTIAL_EL_TEX, CH4_GRAD_PARTIAL_B_TEX]
+    upd_tex = [CH4_GRAD_UPDATE_ST_TEX, CH4_GRAD_UPDATE_EL_TEX, CH4_GRAD_UPDATE_B_TEX]
+    blocks = [ch4_formula_nll_block()]
+    ng = max(0, min(int(n_grad_lines), len(grad_tex)))
+    nu = max(0, min(int(n_update_lines), len(upd_tex)))
+    if ng > 0:
+        blocks.append(ch4_formula_grad_unit_block(text="\n".join(grad_tex[:ng])))
+    if nu > 0:
+        blocks.append(ch4_formula_update_block(text="\n".join(upd_tex[:nu])))
+    return blocks
 
 
 def ch4_cached_notation_corner_blocks() -> list[dict]:
