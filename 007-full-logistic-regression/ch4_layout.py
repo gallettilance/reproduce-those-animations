@@ -4,12 +4,16 @@ from __future__ import annotations
 from pathlib import Path
 
 import handwrite_tutorial as hw
+from dataclasses import replace
+
 from tutorial_template import (
     DEFAULT_EXPORT,
     DEFAULT_LAYOUT,
     DEFAULT_TYPOGRAPHY,
     TUTORIAL_THEMES,
     TutorialComposer,
+    TutorialExport,
+    TutorialLayout,
     TutorialScene,
     list_themes,
     make_composer,
@@ -18,9 +22,36 @@ from tutorial_template import (
 OUTPUT_DIR = Path("renders")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-CH4_FIGSIZE = DEFAULT_EXPORT.figsize
-CH4_EXPORT_DPI = DEFAULT_EXPORT.dpi
-CH4_SAVE_PAD_INCHES = DEFAULT_EXPORT.pad_inches
+# 16:9 canvas at legacy 9.5 in height (keeps bottom formulas uncropped).
+# plot:right rail = 11:3 (of width 14→16). Plot slot height unchanged in inches.
+_CH4_LEGACY_FIG = (15.0, 9.5)
+_CH4_LEGACY_PLOT_FRAC = (2.0 / 3.0) * 1.20
+CH4_CANVAS_H_IN = _CH4_LEGACY_FIG[1]
+CH4_PLOT_SLOT_H_IN = CH4_CANVAS_H_IN * _CH4_LEGACY_PLOT_FRAC
+CH4_FIGSIZE = (CH4_CANVAS_H_IN * 16.0 / 9.0, CH4_CANVAS_H_IN)
+CH4_PLOT_W_FRAC = 11.0 / 14.0
+CH4_PLOT_H_FRAC = CH4_PLOT_SLOT_H_IN / CH4_CANVAS_H_IN
+_CH4_LEGACY_PLOT_W_IN = _CH4_LEGACY_FIG[0] * _CH4_LEGACY_PLOT_FRAC
+_CH4_NEW_PLOT_W_IN = CH4_FIGSIZE[0] * CH4_PLOT_W_FRAC
+CH4_DUO_COMPOSE_SY = CH4_PLOT_SLOT_H_IN / CH4_CANVAS_H_IN
+# Render wider than the slot so compose applies uniform sx=sy (no horizontal stretch).
+CH4_DUO_FIGSIZE = (_CH4_NEW_PLOT_W_IN / CH4_DUO_COMPOSE_SY, CH4_CANVAS_H_IN)
+_CH4_DUO_WR_LEGACY = (1.22, 1.42)
+_CH4_LEGACY_SLOT_W_IN = _CH4_LEGACY_PLOT_W_IN
+CH4_DUO_LEFT_COL_IN = _CH4_LEGACY_SLOT_W_IN * _CH4_DUO_WR_LEGACY[0] / sum(_CH4_DUO_WR_LEGACY)
+CH4_DUO_RIGHT_COL_IN = _CH4_NEW_PLOT_W_IN - CH4_DUO_LEFT_COL_IN
+CH4_DUO_WIDTH_RATIOS = (CH4_DUO_LEFT_COL_IN, CH4_DUO_RIGHT_COL_IN)
+CH4_RIGHT_TEXT_SHIFT_IN = 0.5 / 2.54
+CH4_EXPORT = replace(DEFAULT_EXPORT, figsize=CH4_FIGSIZE)
+CH4_LAYOUT = replace(
+    DEFAULT_LAYOUT,
+    plot_base_frac=CH4_PLOT_W_FRAC,
+    plot_scale=1.0,
+    plot_h_scale=CH4_PLOT_H_FRAC / CH4_PLOT_W_FRAC,
+    right_text_shift_in=CH4_RIGHT_TEXT_SHIFT_IN,
+)
+CH4_EXPORT_DPI = CH4_EXPORT.dpi
+CH4_SAVE_PAD_INCHES = CH4_EXPORT.pad_inches
 
 CH4_HERE_SECTION_TITLE = "We are here"
 CH4_NOTATION_SECTION_TITLE = "Notation"
@@ -29,17 +60,26 @@ CH4_FORMULAS_SECTION_TITLE = "Formulas"
 CH4_RIGHT_SECTION_TITLE = CH4_HERE_SECTION_TITLE
 CH4_BOTTOM_SECTION_TITLE = CH4_FORMULAS_SECTION_TITLE
 
-CH4_COMPOSER = make_composer("classic_light")
+CH4_COMPOSER = make_composer("classic_light", export=CH4_EXPORT, layout=CH4_LAYOUT)
 CH4_TEMPLATE_THEME = "dark_rails"
 
 # ch4_02 end frame fills the canvas; morph shrinks it into the template plot slot.
 CH4_LIK_PLOT_START_RECT = (0.0, 0.0, 1.0, 1.0)
 
-# Duo layout: 2D panel −10%, 3D +10%, 3D vertically aligned with 2D (not 2D+knobs).
-CH4_DUO_DATA_SCALE = 0.90
-CH4_DUO_AX3D_SCALE = 1.10
-CH4_DUO_PLOTS_X_SHIFT_MM = -4.0   # nudge 2D + 3D left; knobs unchanged
+# Duo layout: 2D+knobs −10%, 3D +20% with a slight left/down nudge.
+CH4_DUO_LEFT_SHRINK = 0.90
+CH4_DUO_DATA_SCALE = 0.90 * CH4_DUO_LEFT_SHRINK
+CH4_DUO_PARTIAL_RIGHT_SCALE = 1.10  # stacked 1-D panels in ch4_05b duo layout
+CH4_DUO_AX3D_GROW = 1.20
+CH4_DUO_AX3D_TARGET_W_IN = 6.05 * CH4_DUO_AX3D_GROW
+CH4_DUO_AX3D_TARGET_H_IN = 6.55 * CH4_DUO_AX3D_GROW
+CH4_DUO_KNOB_HEIGHT_SCALE = 1.14 * CH4_DUO_LEFT_SHRINK
+CH4_DUO_PLOTS_X_SHIFT_MM = -7.0   # nudge 2D + 3D left
 CH4_DUO_PLOTS_X_SHIFT_PT = CH4_DUO_PLOTS_X_SHIFT_MM * 72.0 / 25.4
+CH4_DUO_AX3D_X_SHIFT_MM = -6.0    # 6 mm left
+CH4_DUO_AX3D_Y_SHIFT_MM = -20.0   # 2 cm down
+CH4_DUO_AX3D_X_SHIFT_PT = CH4_DUO_AX3D_X_SHIFT_MM * 72.0 / 25.4
+CH4_DUO_AX3D_Y_SHIFT_PT = CH4_DUO_AX3D_Y_SHIFT_MM * 72.0 / 25.4
 
 
 def _ch4_fig_x_shift_frac(fig, shift_pt: float) -> float:
@@ -54,27 +94,62 @@ def ch4_duo_plot_layout_tune(
     *,
     data_scale: float | None = None,
     ax3d_scale: float | None = None,
+    ax3d_scale_y: float | None = None,
     x_shift_pt: float | None = None,
 ) -> None:
-    """Shrink 2D, enlarge 3D, align 3D center with 2D; leave knob axes untouched."""
+    """Shrink 2D, enlarge 3D (taller for square), align 3D center with 2D; leave knob axes untouched."""
     data_scale = CH4_DUO_DATA_SCALE if data_scale is None else float(data_scale)
-    ax3d_scale = CH4_DUO_AX3D_SCALE if ax3d_scale is None else float(ax3d_scale)
     x_shift_pt = CH4_DUO_PLOTS_X_SHIFT_PT if x_shift_pt is None else float(x_shift_pt)
     x_shift = _ch4_fig_x_shift_frac(fig, x_shift_pt)
     fig.canvas.draw()
     d = ax_data.get_position()
     r = ax3d.get_position()
+    if ax3d_scale is None or ax3d_scale_y is None:
+        compose_s = CH4_PLOT_SLOT_H_IN / max(float(fig.get_figheight()), 1e-9)
+        target3_w = float(CH4_DUO_AX3D_TARGET_W_IN)
+        target3_h = float(CH4_DUO_AX3D_TARGET_H_IN)
+        auto_w = target3_w / max(r.width * float(fig.get_figwidth()) * compose_s, 1e-9)
+        auto_y = target3_h / max(r.height * float(fig.get_figheight()) * compose_s, 1e-9)
+        if ax3d_scale is None:
+            ax3d_scale = auto_w
+        if ax3d_scale_y is None:
+            ax3d_scale_y = auto_y
+    else:
+        ax3d_scale = float(ax3d_scale)
+        ax3d_scale_y = float(ax3d_scale_y)
     dw = d.width * data_scale
     dh = d.height * data_scale
     dx = d.x0 + 0.5 * (d.width - dw) + x_shift
     dy = d.y0 + 0.5 * (d.height - dh)
     ax_data.set_position([dx, dy, dw, dh])
     rw = r.width * ax3d_scale
-    rh = r.height * ax3d_scale
+    rh = r.height * ax3d_scale_y
     cy = dy + 0.5 * dh
-    rx = r.x0 + 0.5 * (r.width - rw) + x_shift
-    ry = cy - 0.5 * rh
+    ax3d_x_shift = _ch4_fig_x_shift_frac(fig, CH4_DUO_AX3D_X_SHIFT_PT)
+    fig_h_pt = max(float(fig.get_figheight()) * 72.0, 1e-9)
+    ax3d_y_shift = float(CH4_DUO_AX3D_Y_SHIFT_PT) / fig_h_pt
+    rx = r.x0 + 0.5 * (r.width - rw) + x_shift + ax3d_x_shift
+    ry = cy - 0.5 * rh + ax3d_y_shift
     ax3d.set_position([rx, ry, rw, rh])
+
+
+def ch4_duo_knob_layout_tune(fig, ax_data, axes_k, *, height_scale: float | None = None) -> None:
+    """Match knob row to the tuned 2D panel (same 15% shrink as 2D)."""
+    height_scale = CH4_DUO_KNOB_HEIGHT_SCALE if height_scale is None else float(height_scale)
+    fig.canvas.draw()
+    d = ax_data.get_position()
+    row = [ax.get_position() for ax in axes_k]
+    y0 = min(p.y0 for p in row)
+    y1 = max(p.y0 + p.height for p in row)
+    rh = (y1 - y0) * height_scale
+    cy = 0.5 * (y0 + y1)
+    n = max(len(axes_k), 1)
+    gap = max(d.width * 0.04, 0.008)
+    kw = max((d.width - gap * (n - 1)) / n, 0.01)
+    x = float(d.x0)
+    for ax in axes_k:
+        ax.set_position([x, cy - 0.5 * rh, kw, rh])
+        x += kw + gap
 
 
 def ch4_duo_partial_layout_tune(
@@ -93,7 +168,7 @@ def ch4_duo_partial_layout_tune(
 ) -> None:
     """Like ``ch4_duo_plot_layout_tune`` but right column is stacked 1-D NLL panels."""
     data_scale = CH4_DUO_DATA_SCALE if data_scale is None else float(data_scale)
-    right_scale = CH4_DUO_AX3D_SCALE if right_scale is None else float(right_scale)
+    right_scale = CH4_DUO_PARTIAL_RIGHT_SCALE if right_scale is None else float(right_scale)
     x_shift_pt = CH4_DUO_PLOTS_X_SHIFT_PT if x_shift_pt is None else float(x_shift_pt)
     x_shift = _ch4_fig_x_shift_frac(fig, x_shift_pt)
     fig.canvas.draw()
@@ -141,8 +216,8 @@ def ch4_duo_partial_layout_tune(
             ax.set_position([p.x0 + dx_frac, p.y0 + dy_frac, p.width, p.height])
 
 
-CH4_RAILS_CACHE_3D = "ch4_lik_3d_v13"
-CH4_RAILS_CACHE_GD = "ch4_lik_gd_v10"
+CH4_RAILS_CACHE_3D = "ch4_lik_3d_v16"
+CH4_RAILS_CACHE_GD = "ch4_lik_gd_v13"
 CH4_RAILS_CACHE_SHELL = "ch4_lik_shell_v1"
 
 
@@ -165,6 +240,22 @@ def ch4_rails_cache_key_gd(
         tag = str(int(hi))
     color_tag = "red" if grad_red else "rgb"
     return f"{CH4_RAILS_CACHE_GD}_{tag}_{color_tag}"
+
+
+def ch4_rails_cache_key_newton(
+    *,
+    highlight_update_idx: int | None = None,
+    highlight_all: bool = False,
+) -> str:
+    """Cache key for Newton bottom-rail variant (Hessian matrix + Newton updates)."""
+    hi = highlight_update_idx
+    if highlight_all:
+        tag = "all"
+    elif hi is None:
+        tag = "none"
+    else:
+        tag = str(int(hi))
+    return f"{CH4_RAILS_CACHE_NEWTON}_{tag}"
 
 _CH4_CACHED_GD_BOTTOM: list[dict] | None = None
 _CH4_CACHED_3D_BOTTOM: list[dict] | None = None
@@ -594,6 +685,9 @@ CH4_NEG_LOG_LIK_TEX = r"$NLL(w_{\mathrm{ST}}, w_{\mathrm{EL}}, b)=-\log \mathcal
 CH4_NLL_FORMULA_TEX = (
     r"$NLL(w_{\mathrm{ST}}, w_{\mathrm{EL}}, b) = -\mathop{\sum}\limits_{i=0}^{N} \log p(y_i \mid x_i)$"
 )
+CH4_NLL_FORMULA_NEWTON_TEX = (
+    r"$NLL = -\mathop{\sum}\limits_{i=0}^{N} \log p(y_i \mid x_i)$"
+)
 CH4_PROB_FORMULA_TEX = (
     r"$p(y_i \mid x_i) = \begin{cases}"
     r"\sigma(\boldsymbol{w_{\mathrm{ST}}} x_{i,\mathrm{ST}} + \boldsymbol{w_{\mathrm{EL}}} x_{i,\mathrm{EL}} + \boldsymbol{b})"
@@ -601,6 +695,21 @@ CH4_PROB_FORMULA_TEX = (
     r"1 - \sigma(\boldsymbol{w_{\mathrm{ST}}} x_{i,\mathrm{ST}} + \boldsymbol{w_{\mathrm{EL}}} x_{i,\mathrm{EL}} + \boldsymbol{b})"
     r" & \text{if i failed} \end{cases}$"
 )
+CH4_HESSIAN_SHIFT_UP_MM = 5.0
+CH4_HESSIAN_SHIFT_DOWN_MM = 6.0
+CH4_HESSIAN_SHIFT_RIGHT_MM = 5.0
+CH4_HESSIAN_SHIFT_UP_PT = CH4_HESSIAN_SHIFT_UP_MM * 72.0 / 25.4
+CH4_HESSIAN_SHIFT_DOWN_PT = CH4_HESSIAN_SHIFT_DOWN_MM * 72.0 / 25.4
+CH4_HESSIAN_MATRIX_Y_SHIFT_PT = CH4_HESSIAN_SHIFT_DOWN_PT - CH4_HESSIAN_SHIFT_UP_PT
+CH4_HESSIAN_BRACKET_Y_SHIFT_MM = 2.5
+CH4_HESSIAN_BRACKET_Y_SHIFT_PT = CH4_HESSIAN_BRACKET_Y_SHIFT_MM * 72.0 / 25.4
+CH4_HESSIAN_CELL_Y_SHIFT_MM = 3.5
+CH4_HESSIAN_CELL_Y_SHIFT_PT = CH4_HESSIAN_CELL_Y_SHIFT_MM * 72.0 / 25.4
+CH4_HESSIAN_SHIFT_RIGHT_PT = CH4_HESSIAN_SHIFT_RIGHT_MM * 72.0 / 25.4
+CH4_NLL_NEWTON_SHIFT_DOWN_MM = 5.0
+CH4_NLL_NEWTON_SHIFT_DOWN_PT = CH4_NLL_NEWTON_SHIFT_DOWN_MM * 72.0 / 25.4
+CH4_NEWTON_UPDATE_SHIFT_RIGHT_MM = 10.0
+CH4_NEWTON_UPDATE_SHIFT_RIGHT_PT = CH4_NEWTON_UPDATE_SHIFT_RIGHT_MM * 72.0 / 25.4
 CH4_FORMULA_GRAD_UNIT_SHIFT_IN = 3.0 / 2.54   # shift ∂ column right (+1 cm)
 CH4_FORMULA_GRAD_UNIT_BASE_DROP_MM = 12.0
 CH4_FORMULA_GRAD_UNIT_LIFT_MM = 13.0          # lower on page → larger effective drop (+2 mm vs prior)
@@ -634,6 +743,46 @@ CH4_GRAD_UPDATE_EL_TEX = (
 CH4_GRAD_UPDATE_B_TEX = (
     r"$b \leftarrow b - \alpha \frac{\partial NLL}{\partial b}$"
 )
+CH4_HESSIAN_CELLS_TEX = [
+    [
+        r"\frac{\partial^2 NLL}{\partial w_{ST}^2}",
+        r"\frac{\partial^2 NLL}{\partial w_{ST}\partial w_{EL}}",
+        r"\frac{\partial^2 NLL}{\partial w_{ST}\partial b}",
+    ],
+    [
+        r"\frac{\partial^2 NLL}{\partial w_{EL}\partial w_{ST}}",
+        r"\frac{\partial^2 NLL}{\partial w_{EL}^2}",
+        r"\frac{\partial^2 NLL}{\partial w_{EL}\partial b}",
+    ],
+    [
+        r"\frac{\partial^2 NLL}{\partial b\partial w_{ST}}",
+        r"\frac{\partial^2 NLL}{\partial b\partial w_{EL}}",
+        r"\frac{\partial^2 NLL}{\partial b^2}",
+    ],
+]
+CH4_HESSIAN_MATRIX_TEX = (
+    r"$H=\begin{pmatrix}"
+    r"\scriptstyle\frac{\partial^2 NLL}{\partial w_{ST}^2}&"
+    r"\scriptstyle\frac{\partial^2 NLL}{\partial w_{ST}\partial w_{EL}}&"
+    r"\scriptstyle\frac{\partial^2 NLL}{\partial w_{ST}\partial b}\\"
+    r"\scriptstyle\frac{\partial^2 NLL}{\partial w_{EL}\partial w_{ST}}&"
+    r"\scriptstyle\frac{\partial^2 NLL}{\partial w_{EL}^2}&"
+    r"\scriptstyle\frac{\partial^2 NLL}{\partial w_{EL}\partial b}\\"
+    r"\scriptstyle\frac{\partial^2 NLL}{\partial b\partial w_{ST}}&"
+    r"\scriptstyle\frac{\partial^2 NLL}{\partial b\partial w_{EL}}&"
+    r"\scriptstyle\frac{\partial^2 NLL}{\partial b^2}"
+    r"\end{pmatrix}$"
+)
+CH4_NEWTON_UPDATE_ST_TEX = (
+    r"$w_{ST} \leftarrow w_{ST} - (H^{-1}\nabla NLL)_{ST}$"
+)
+CH4_NEWTON_UPDATE_EL_TEX = (
+    r"$w_{EL} \leftarrow w_{EL} - (H^{-1}\nabla NLL)_{EL}$"
+)
+CH4_NEWTON_UPDATE_B_TEX = (
+    r"$b \leftarrow b - (H^{-1}\nabla NLL)_{b}$"
+)
+CH4_RAILS_CACHE_NEWTON = "ch4_lik_newton_v25"
 CH4_GD_ARROW_ST_COLOR = "#2563eb"
 CH4_GD_ARROW_EL_COLOR = "#ea580c"
 CH4_GD_ARROW_B_COLOR = "#16a34a"
@@ -734,6 +883,9 @@ def ch4_we_are_here_blocks(
     grad=None,
     step_size=None,
     grad_line_colors=None,
+    here_grad_mode: str = "partial",
+    newton_step=None,
+    morph_u: float = 0.0,
 ) -> list[dict]:
     """Right-rail state at the current 3-D point (single-line rows, tight spacing)."""
     row = {
@@ -776,21 +928,43 @@ def ch4_we_are_here_blocks(
         nll_block["text_color"] = nll_color
     blocks.append(nll_block)
     if grad is not None:
-        g1, g2, gb = grad
+        g1, g2, gb = (float(grad[0]), float(grad[1]), float(grad[2]))
         colors = list(grad_line_colors) if grad_line_colors is not None else list(CH4_GD_PARTIAL_COLORS)
-        grad_block = {
-            **partials_row,
-            "text": (
-                rf"$\partial NLL/\partial w_{{ST}} = {float(g1):.2f}$" + "\n"
-                rf"$\partial NLL/\partial w_{{EL}} = {float(g2):.2f}$" + "\n"
-                rf"$\partial NLL/\partial b = {float(gb):.2f}$"
-            ),
-            "role": "gradient",
-        }
+        mode = str(here_grad_mode or "partial")
+        if mode in {"newton", "morph"} and newton_step is not None:
+            import numpy as np
+
+            dw, de, db = (float(newton_step[0]), float(newton_step[1]), float(newton_step[2]))
+            if mode == "morph":
+                u = float(np.clip(float(morph_u), 0.0, 1.0))
+                v1 = (1.0 - u) * g1 + u * dw
+                v2 = (1.0 - u) * g2 + u * de
+                vb = (1.0 - u) * gb + u * db
+            else:
+                v1, v2, vb = dw, de, db
+            grad_block = {
+                **partials_row,
+                "text": (
+                    rf"$(H^{{-1}}\nabla)_{{ST}} = {v1:.2f}$" + "\n"
+                    rf"$(H^{{-1}}\nabla)_{{EL}} = {v2:.2f}$" + "\n"
+                    rf"$(H^{{-1}}\nabla)_{{b}} = {vb:.2f}$"
+                ),
+                "role": "gradient",
+            }
+        else:
+            grad_block = {
+                **partials_row,
+                "text": (
+                    rf"$\partial NLL/\partial w_{{ST}} = {g1:.2f}$" + "\n"
+                    rf"$\partial NLL/\partial w_{{EL}} = {g2:.2f}$" + "\n"
+                    rf"$\partial NLL/\partial b = {gb:.2f}$"
+                ),
+                "role": "gradient",
+            }
         if colors:
             grad_block["line_text_colors"] = list(colors[:3])
         blocks.append(grad_block)
-    if step_size is not None:
+    if step_size is not None and str(here_grad_mode or "partial") == "partial":
         blocks.append({
             **row,
             "text": f"α = {_ch4_fmt_step_size(step_size)}",
@@ -814,6 +988,7 @@ def ch4_we_are_here_roc_blocks(
     partials=None,
     grad_line_colors=None,
     partial_lines_show: int = 3,
+    show_neg_partials: bool = False,
     show_alpha: bool = False,
     step_size=None,
 ) -> list[dict]:
@@ -862,11 +1037,18 @@ def ch4_we_are_here_roc_blocks(
         colors = list(grad_line_colors) if grad_line_colors is not None else list(CH4_GD_PARTIAL_COLORS)
         if show_partials and partials is not None:
             p1, p2, pb = partials
-            lines = [
-                rf"$\partial NLL/\partial w_{{ST}} = {float(p1):.2f}$",
-                rf"$\partial NLL/\partial w_{{EL}} = {float(p2):.2f}$",
-                rf"$\partial NLL/\partial b = {float(pb):.2f}$",
-            ]
+            if show_neg_partials:
+                lines = [
+                    rf"$-\partial NLL/\partial w_{{ST}} = {-float(p1):.2f}$",
+                    rf"$-\partial NLL/\partial w_{{EL}} = {-float(p2):.2f}$",
+                    rf"$-\partial NLL/\partial b = {-float(pb):.2f}$",
+                ]
+            else:
+                lines = [
+                    rf"$\partial NLL/\partial w_{{ST}} = {float(p1):.2f}$",
+                    rf"$\partial NLL/\partial w_{{EL}} = {float(p2):.2f}$",
+                    rf"$\partial NLL/\partial b = {float(pb):.2f}$",
+                ]
         else:
             lines = [
                 rf"$\Delta NLL/\Delta w_{{ST}} = {float(g1):.2f}$",
@@ -994,6 +1176,40 @@ def ch4_formula_col_log(**kw) -> dict:
     return _ch4_formula_hand_block(CH4_LOG_LIK_TEX, **base)
 
 
+def ch4_formula_col_prob_interlude(**kw) -> dict:
+    """p(y_i|x_i) in the ch4_03 log column before log ℒ is introduced."""
+    base = dict(
+        formula_slot="log",
+        weight=0.44,
+        text_x_frac=CH4_FORMULA_LOG_TEXT_X_FRAC,
+        text_x_shift_pt=CH4_FORMULA_CH03_LOG_NLL_X_SHIFT_PT,
+        text_y_inset_pt=CH4_FORMULA_BODY_DROP_PT,
+        bold_lhs=False,
+        line_dy_pt=CH4_FORMULA_LOG_LINE_DY_PT,
+        cases_row_gap_pt=CH4_CASES_ROW_GAP_PT,
+    )
+    base.update(kw)
+    return _ch4_formula_hand_block(CH4_PROB_FORMULA_TEX, **base)
+
+
+def ch4_formula_blocks_ch4_03_prob_interlude() -> list[dict]:
+    """Three-column bottom row with p(y_i|x_i) occupying the log column."""
+    return [
+        ch4_formula_col_likelihood(),
+        ch4_formula_col_prob_interlude(),
+        ch4_formula_col_nll(),
+    ]
+
+
+def ch4_bottom_prog_ch4_03_prob_interlude(*, lik_u: float = 1.0, prob_u: float = 0.0) -> dict[int, dict]:
+    """Per-block progress for the early p(y_i|x_i) write/erase in ch4_03."""
+    return {
+        0: {0: float(lik_u)},
+        1: ch4_bottom_per_block_progress([ch4_formula_col_prob_interlude()], {0: float(prob_u)})[0],
+        2: {0: 0.0},
+    }
+
+
 def ch4_formula_col_nll(**kw) -> dict:
     base = dict(
         formula_slot="nll_col",
@@ -1037,13 +1253,14 @@ def ch4_bottom_prog_ch4_03_three_col(
 
 def ch4_formula_nll_block(**kw) -> dict:
     """Shared NLL formula block (ch4_03 end + ch4_04–06 left column)."""
+    tex = kw.pop("text", CH4_NLL_FORMULA_TEX)
     base = dict(
         formula_slot="nll",
         weight=0.30,
         text_x_shift_pt=CH4_FORMULA_NLL_X_SHIFT_PT,
     )
     base.update(kw)
-    return _ch4_formula_hand_block(CH4_NLL_FORMULA_TEX, **base)
+    return _ch4_formula_hand_block(tex, **base)
 
 
 def ch4_formula_prob_block(**kw) -> dict:
@@ -1166,6 +1383,101 @@ def ch4_formula_blocks_gd_story(
     ]
 
 
+def ch4_formula_hessian_matrix_block(**kw) -> dict:
+    """3×3 Hessian — Patrick Hand matrix between NLL and Newton updates (layout C)."""
+    spec = dict(
+        label_tex=r"H=",
+        cells_tex=CH4_HESSIAN_CELLS_TEX,
+        align="left",
+        bracket_style="square",
+        bracket_draw="lines",
+        bracket_line_width_pt=2.8,
+        bracket_tick_width_pt=4.4,
+        bracket_y_shift_pt=CH4_HESSIAN_BRACKET_Y_SHIFT_PT,
+        matrix_cell_y_shift_pt=CH4_HESSIAN_CELL_Y_SHIFT_PT,
+        paren_gap_pt=2.85,
+        cell_fs_scale=0.92,
+        cell_fs_max_scale=1.12,
+        fit_mode="width",
+        fill_height_frac=0.90,
+        row_gap_pt=8.0,
+        col_gap_pt=18.0,
+        col_gap_fixed=True,
+        cell_subscript_scale=1.10,
+        cell_superscript_scale=1.32,
+        cell_superscript_raise_frac=0.58,
+        cell_symbol_scale=2.35,
+        min_fs=9.0,
+    )
+    spec.update(kw.pop("handwrite_matrix", {}) or {})
+    base = dict(
+        handwrite_matrix=spec,
+        block_fs=CH4_HERE_BLOCK_FS,
+        top_pad_pt=0.0,
+        text_y_inset_pt=CH4_FORMULA_GRAD_UNIT_DROP_PT - 8.0,
+        text_x_frac=0.04,
+        matrix_x_shift_pt=CH4_HESSIAN_SHIFT_RIGHT_PT,
+        matrix_y_shift_pt=CH4_HESSIAN_MATRIX_Y_SHIFT_PT,
+        align="left",
+        pt_units=True,
+        role="formula",
+        formula_slot="hessian",
+        weight=0.50,
+        bold_lhs=False,
+        matrix_max_frac=1.0,
+    )
+    base.update(kw)
+    return base
+
+
+def ch4_formula_newton_update_block(**kw) -> dict:
+    """Newton weight-update rules — handwritten, narrow right column."""
+    text = kw.pop("text", None)
+    if text is None:
+        text = "\n".join([CH4_NEWTON_UPDATE_ST_TEX, CH4_NEWTON_UPDATE_EL_TEX, CH4_NEWTON_UPDATE_B_TEX])
+    base = dict(
+        top_pad_pt=0.0,
+        text_y_inset_pt=CH4_FORMULA_GRAD_UNIT_DROP_PT,
+        text_x_frac=0.08,
+        text_x_shift_pt=CH4_NEWTON_UPDATE_SHIFT_RIGHT_PT,
+        line_dy_pt=CH4_FORMULA_GRAD_LINE_DY_PT + 1.0,
+        line_row_y_pt=CH4_FORMULA_GRAD_ROW_Y_PT,
+        formula_slot="update",
+        weight=0.26,
+        bold_lhs=False,
+    )
+    base.update(kw)
+    return _ch4_formula_hand_block(text, **base)
+
+
+def ch4_formula_blocks_newton_story(
+    *,
+    highlight_update_idx: int | None = None,
+    highlight_all_updates: bool = False,
+) -> list[dict]:
+    """Bottom formulas for ch4_08: NLL + Hessian matrix + Newton weight updates."""
+    updates = [CH4_NEWTON_UPDATE_ST_TEX, CH4_NEWTON_UPDATE_EL_TEX, CH4_NEWTON_UPDATE_B_TEX]
+    line_colors = [None, None, None]
+    hi = highlight_update_idx
+    if highlight_all_updates:
+        line_colors = list(CH4_GD_PARTIAL_COLORS)
+    elif hi is not None and 0 <= int(hi) < len(updates):
+        line_colors[int(hi)] = CH4_GD_PARTIAL_COLORS[int(hi)]
+    update_kw = {}
+    if any(c is not None for c in line_colors):
+        update_kw["line_text_colors"] = line_colors
+    return [
+        ch4_formula_nll_block(
+            text=CH4_NLL_FORMULA_NEWTON_TEX,
+            text_y_inset_pt=CH4_FORMULA_GRAD_UNIT_DROP_PT + 5.0,
+            text_y_shift_pt=CH4_NLL_NEWTON_SHIFT_DOWN_PT,
+            block_fs=CH4_HERE_BLOCK_FS * 1.06,
+        ),
+        ch4_formula_hessian_matrix_block(),
+        ch4_formula_newton_update_block(**update_kw),
+    ]
+
+
 def ch4_formula_blocks_gd_progressive(*, n_grad_lines: int = 0, n_update_lines: int = 0) -> list[dict]:
     """Bottom formulas for staged ∂ / update reveals (ch4_05b)."""
     grad_tex = [CH4_GRAD_PARTIAL_ST_TEX, CH4_GRAD_PARTIAL_EL_TEX, CH4_GRAD_PARTIAL_B_TEX]
@@ -1245,7 +1557,12 @@ def ch4_compose_tutorial_frame(
     shell_cache_key=None,
     **_ignored,
 ):
-    comp = composer or (make_composer(theme) if theme else CH4_COMPOSER)
+    if composer is not None:
+        comp = composer
+    elif theme:
+        comp = make_composer(theme, export=CH4_EXPORT, layout=CH4_LAYOUT)
+    else:
+        comp = CH4_COMPOSER
     scene = TutorialScene(
         plot=plot_img,
         math_right_blocks=right_blocks if right_blocks is not None else math_right_blocks,
@@ -1359,7 +1676,12 @@ def ch4_scene_from_dict(d: dict) -> TutorialScene:
 
 
 def ch4_render_tutorial_frame(scene_dict, write_progress=1.0, *, theme: str | None = None, composer=None):
-    comp = composer or (make_composer(theme) if theme else CH4_COMPOSER)
+    if composer is not None:
+        comp = composer
+    elif theme:
+        comp = make_composer(theme, export=CH4_EXPORT, layout=CH4_LAYOUT)
+    else:
+        comp = CH4_COMPOSER
     return comp.render_scene(ch4_scene_from_dict(scene_dict), write_progress=write_progress)
 
 
@@ -1375,7 +1697,7 @@ def ch4_export_theme_demos(
     """Export one handwrite demo MP4 per color theme."""
     paths = []
     for name in (themes or list_themes()):
-        comp = make_composer(name)
+        comp = make_composer(name, export=CH4_EXPORT, layout=CH4_LAYOUT)
         fn = f"{prefix}_{name}.mp4"
         scene = ch4_scene_from_dict(scene_dict)
         paths.append(comp.export_mp4(scene, fn, save_mp4=save_mp4, output_dir=OUTPUT_DIR, n_frames=n_frames, ms_per_frame=ms_per_frame))

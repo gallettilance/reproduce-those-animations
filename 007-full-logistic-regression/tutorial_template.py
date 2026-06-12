@@ -24,6 +24,7 @@ class TutorialExport:
 class TutorialLayout:
     plot_base_frac: float = 2.0 / 3.0
     plot_scale: float = 1.20
+    plot_h_scale: float | None = None
     region_pad: float = 0.010
     right_gap_frac: float = 0.001
     fig_edge_pad: float = 0.004
@@ -39,6 +40,7 @@ class TutorialLayout:
     bottom_plot_gap_frac: float = 0.001
     bottom_section_drop_frac: float = 0.014
     right_text_inset_frac: float = 0.014
+    right_text_shift_in: float = 0.0
     bottom_text_drop_frac: float = 0.010
     corner_title_lift_in: float = 3.0 / 25.4  # raise Notation title ~3 mm (figure inches)
 
@@ -48,7 +50,8 @@ class TutorialLayout:
 
     @property
     def plot_h_frac(self) -> float:
-        return self.plot_base_frac * self.plot_scale
+        h_scale = self.plot_scale if self.plot_h_scale is None else self.plot_h_scale
+        return self.plot_base_frac * h_scale
 
 
 @dataclass(frozen=True)
@@ -433,6 +436,7 @@ class TutorialComposer:
             0.05,
         )
         right_inset = float(L.right_text_inset_frac)
+        right_shift = float(L.right_text_shift_in) / float(self.export.figsize[0])
         corner_x0 = right_panel_x0
         corner_w = right_panel_w
         corner_h = bottom_h_total
@@ -444,18 +448,23 @@ class TutorialComposer:
         bottom_formulas_w = max(right_panel_x0 - pad - float(L.bottom_col_gap_frac), 0.12)
         rects = {
             "plot": plot,
-            "math_right_title": (right_x0 + right_inset, right_title_y),
-            "math_right_title_width": right_w - right_inset,
+            "math_right_title": (right_x0 + right_inset + right_shift, right_title_y),
+            "math_right_title_width": right_w - right_inset - right_shift,
             "math_right_panel": (right_panel_x0, 0.0, right_panel_w, 1.0),
-            "math_right_content": (right_x0, right_content_y0, right_w, right_content_h),
+            "math_right_content": (right_x0 + right_shift, right_content_y0, right_w - right_shift, right_content_h),
             "math_bottom_title": (pad, bottom_title_y),
             "math_bottom_title_width": bottom_formulas_w,
             "math_bottom_panel": (0.0, 0.0, 1.0, bottom_panel_h),
             "math_bottom_content": (pad, bottom_content_y0, bottom_formulas_w, bottom_content_h),
-            "math_corner_title": (corner_x0 + right_inset, corner_title_y),
-            "math_corner_title_width": corner_w - right_inset,
+            "math_corner_title": (corner_x0 + right_inset + right_shift, corner_title_y),
+            "math_corner_title_width": corner_w - right_inset - right_shift,
             "math_corner_panel": (corner_x0, 0.0, corner_w, corner_h),
-            "math_corner_content": (corner_x0 + right_inset * 0.5, corner_content_y0, corner_w - right_inset, corner_content_h),
+            "math_corner_content": (
+                corner_x0 + right_inset * 0.5 + right_shift,
+                corner_content_y0,
+                corner_w - right_inset - right_shift,
+                corner_content_h,
+            ),
             "plot_right_edge": (plot_right, plot_y0, T.crossfade_frac, plot_h),
         }
         if fig is None:
@@ -535,6 +544,24 @@ class TutorialComposer:
             x += cw + gap
         return rects
 
+    def _bottom_newton_column_rects(self, blocks, bottom_rect):
+        """NLL | Hessian matrix | Newton updates — layout C (16% / 58% / 26%)."""
+        x0, y0, total_w, h = (float(v) for v in bottom_rect)
+        gap = float(self.layout.bottom_col_gap_frac) * 1.75
+        gap_hess_upd = gap * 0.5
+        gaps_total = gap + gap_hess_upd
+        avail = max(total_w - gaps_total, 0.20)
+        nll_w = avail * 0.16
+        upd_w = avail * 0.26
+        hess_w = max(avail - nll_w - upd_w, 0.18)
+        hess_x = x0 + nll_w + gap
+        upd_x = hess_x + hess_w + gap_hess_upd
+        return [
+            (x0, y0, nll_w, h),
+            (hess_x, y0, hess_w, h),
+            (upd_x, y0, max(total_w - (upd_x - x0), upd_w * 0.85), h),
+        ]
+
     def _bottom_gd_column_rects(self, blocks, bottom_rect):
         """NLL column + stacked ∂ column + update rule (ch4_06 formulas)."""
         x0, y0, total_w, h = (float(v) for v in bottom_rect)
@@ -577,6 +604,13 @@ class TutorialComposer:
             and blocks[2].get("formula_slot") == "nll_col"
         ):
             return self._bottom_likelihood_3col_rects(blocks, bottom_rect)
+        if (
+            len(blocks) == 3
+            and blocks[0].get("formula_slot") == "nll"
+            and blocks[1].get("formula_slot") == "hessian"
+            and blocks[2].get("formula_slot") == "update"
+        ):
+            return self._bottom_newton_column_rects(blocks, bottom_rect)
         if (
             len(blocks) == 3
             and blocks[0].get("formula_slot") == "nll"
@@ -1474,9 +1508,20 @@ TUTORIAL_THEMES: dict[str, TutorialTheme] = {
 }
 
 
-def make_composer(theme_name: str = "classic_light") -> TutorialComposer:
+def make_composer(
+    theme_name: str = "classic_light",
+    *,
+    export: TutorialExport | None = None,
+    layout: TutorialLayout | None = None,
+    typography: TutorialTypography | None = None,
+) -> TutorialComposer:
     theme = TUTORIAL_THEMES[theme_name]
-    return TutorialComposer(theme=theme)
+    return TutorialComposer(
+        export=export or DEFAULT_EXPORT,
+        layout=layout or DEFAULT_LAYOUT,
+        typography=typography or DEFAULT_TYPOGRAPHY,
+        theme=theme,
+    )
 
 
 def list_themes() -> list[str]:

@@ -63,6 +63,7 @@ class HandwriteStyle:
     frame_lw: float = 0.7
     title_reveal_boost: float = 1.4
     symbol_font_family: str = "STIX Two Math"
+    symbol_scale: float = 1.0          # ∂ ∇ ∈ … (not Σ/Π limops)
     subscript_scale: float = 0.62
     subscript_drop_frac: float = 0.12
     superscript_scale: float = 0.58
@@ -124,9 +125,17 @@ def hand_font(size: float, *, bold: bool = False) -> fm.FontProperties:
     return fm.FontProperties(family=fam, size=float(size), weight=weight)
 
 
-def symbol_font(size: float, *, style: HandwriteStyle | None = None) -> fm.FontProperties:
+def symbol_font(
+    size: float,
+    *,
+    style: HandwriteStyle | None = None,
+    weight: str | None = None,
+) -> fm.FontProperties:
     style = style or HandwriteStyle()
-    return fm.FontProperties(family=style.symbol_font_family, size=float(size))
+    fp = fm.FontProperties(family=style.symbol_font_family, size=float(size))
+    if weight is not None:
+        fp.set_weight(str(weight))
+    return fp
 
 
 def _merge_adjacent_runs(runs: list[Run]) -> list[Run]:
@@ -313,7 +322,7 @@ def runs_plain(runs: list[Run]) -> str:
 def _sym_scale(main_fs: float, text: str, *, style: HandwriteStyle) -> float:
     if str(text) in "ΣΠ":
         return main_fs * style.limop_symbol_scale
-    return main_fs
+    return main_fs * float(getattr(style, "symbol_scale", 1.0))
 
 
 def _run_font(
@@ -691,6 +700,38 @@ def cases_row_gap_px(
     return main_fs * style.cases_row_gap_frac * (float(fig.dpi) / 72.0)
 
 
+def _draw_cases_brace(
+    target,
+    x: float,
+    y: float,
+    brace_fs: float,
+    *,
+    style: HandwriteStyle,
+    color: str,
+    transform,
+    write_progress: float = 1.0,
+) -> None:
+    """Draw a ``cases`` opening brace, honoring write/erase progress."""
+    if write_progress <= 0.0:
+        return
+    txt = target.text(
+        x, y, "{", transform=transform, va="center", ha="left",
+        color=color, fontproperties=symbol_font(brace_fs, style=style), clip_on=False,
+    )
+    if write_progress >= 1.0 - 1e-9:
+        return
+    fig = target.figure
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    prog = ease_write_progress(float(write_progress), kind=style.ease)
+    bb = txt.get_window_extent(renderer)
+    clip_w = max(float(bb.width) * float(prog), 0.0)
+    if clip_w > 0.0:
+        txt.set_clip_path(mpl.patches.Rectangle((bb.x0, bb.y0), clip_w, bb.height, transform=None))
+    else:
+        txt.set_visible(False)
+
+
 def draw_cases_block(
     target,
     x: float,
@@ -752,9 +793,9 @@ def draw_cases_block(
     brace_fs = max(main_fs * 2.25, block_span_px * style.cases_brace_height_ratio * (72.0 / fig.dpi))
     brace_w, brace_h = run_size_px(renderer, "sym", "{", brace_fs, style=style, bold=bold, fp_hand=fp_hand)
     brace_center_y = (y_top + block_bottom) / 2.0
-    target.text(
-        x_cursor, brace_center_y, "{", transform=transform, va="center", ha="left",
-        color=color, fontproperties=symbol_font(brace_fs, style=style), clip_on=False,
+    _draw_cases_brace(
+        target, x_cursor, brace_center_y, brace_fs,
+        style=style, color=color, transform=transform, write_progress=write_progress,
     )
     x_rows = x_cursor + (brace_w + pad_px) / ax_w_px
     prog_rows = line_write_progresses(len(rows), write_progress, overlap=style.reveal_overlap)
@@ -848,9 +889,9 @@ def draw_lhs_cases_inline(
             ha="left", va="top", transform=transform, write_progress=write_progress,
             reveal_mode=reveal_mode, fp_hand=fp_hand,
         )
-    target.text(
-        x_brace, brace_center_y, "{", transform=transform, va="center", ha="left",
-        color=color, fontproperties=symbol_font(brace_fs, style=style), clip_on=False,
+    _draw_cases_brace(
+        target, x_brace, brace_center_y, brace_fs,
+        style=style, color=color, transform=transform, write_progress=write_progress,
     )
     x_rows = x_brace + (brace_w + pad_px) / ax_w_px
     prog_rows = line_write_progresses(len(rows), write_progress, overlap=style.reveal_overlap)
@@ -1591,6 +1632,28 @@ def draw_block_cell(
         )
         return
 
+    if block.get("handwrite_matrix"):
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        ax.axis("off")
+        ax.set_facecolor("none")
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+        from latex_to_handwrite import draw_handwrite_matrix_in_cell
+
+        draw_handwrite_matrix_in_cell(
+            ax,
+            block,
+            style=style,
+            block_fs=block_fs,
+            align=align,
+            line_progress=line_progress,
+            text_color=text_color,
+            text_x_frac=text_x_frac,
+            text_y_inset_pt=text_y_inset_pt,
+        )
+        return
+
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.axis("off")
@@ -1622,6 +1685,28 @@ def draw_block_cell(
     max_line_frac = max_line_px / float(fig.bbox.width)
     fp_block = hand_font(body_fs, bold=bool(block.get("bold_lhs", False))) if style.enabled else None
     fp_label = hand_font(label_fs_eff) if style.enabled else None
+
+    if block.get("fit_to_column_width"):
+        min_fs = float(block.get("block_fs_min", 12.0))
+        preview_lines = block_display_lines(block, style=style)
+        bold_lhs = bool(block.get("bold_lhs", False))
+        while body_fs > min_fs and preview_lines:
+            fp_test = hand_font(body_fs, bold=bold_lhs) if style.enabled else None
+            widest = 0.0
+            for raw in preview_lines:
+                runs = parse_handwrite_runs(raw)
+                widest = max(
+                    widest,
+                    mixed_line_width_px(
+                        renderer, runs, body_fs, style=style, bold=bold_lhs, fp_hand=fp_test,
+                    ),
+                )
+            if widest <= max_line_px:
+                break
+            body_fs -= 0.5
+        if style.enabled:
+            fp_block = hand_font(body_fs, bold=bold_lhs)
+
     line_progress = line_progress or {}
     lab_color = label_color if label_color is not None else style.label_color
     body_color = text_color if text_color is not None else style.text_color
@@ -1725,7 +1810,7 @@ def draw_block_cell(
     for raw in raw_lines:
         runs = parse_handwrite_runs(raw)
         w_px = mixed_line_width_px(renderer, runs, body_fs, style=style, bold=bool(block.get("bold_lhs", False)), fp_hand=fp_block)
-        if w_px <= max_line_px or style.enabled:
+        if w_px <= max_line_px or (style.enabled and not bool(block.get("force_wrap", False))):
             lines.append(raw)
         else:
             lines.extend(wrap_text_for_width(fig, raw, body_fs, max_line_frac, bold=False, style=style))
