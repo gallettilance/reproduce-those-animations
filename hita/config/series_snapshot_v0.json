@@ -1,0 +1,90 @@
+{
+  "name": "logistic_regression",
+  "version": "0.2.0",
+  "profiles": {
+    "hq": {
+      "export_dpi": 200,
+      "anim_dpi": 120,
+      "landscape_dpi": 120,
+      "sigma_contour_levels": 45,
+      "sigma_contour_antialiased": true,
+      "land_grid": 132,
+      "land_grid_coarse": 56,
+      "land_grid_fine": 96,
+      "land_quadrant_fine": true,
+      "grid_land_grid": 196,
+      "voxel_grid": 28,
+      "knob_sweep_n": 88,
+      "camera_orbit_n": 96,
+      "camera_orbit_deg": 360.0,
+      "ct_sweep_n": 48,
+      "ct_pivot_n": 72,
+      "voxel_orbit_n": 96,
+      "voxel_fill_n": 48,
+      "hold_n": 10,
+      "ms_per_frame": 95,
+      "ch5_grid": 26,
+      "ch5_ct_grid": 18,
+      "ch5_voxel_grid": 28,
+      "ch5_prior_land_full": true
+    },
+    "draft": {
+      "export_dpi": 78,
+      "anim_dpi": 72,
+      "landscape_dpi": 72,
+      "sigma_contour_levels": 26,
+      "sigma_contour_antialiased": false,
+      "land_grid": 52,
+      "land_grid_coarse": 24,
+      "land_grid_fine": 36,
+      "land_quadrant_fine": false,
+      "grid_land_grid": 72,
+      "voxel_grid": 14,
+      "knob_sweep_n": 12,
+      "camera_orbit_n": 8,
+      "camera_orbit_deg": 360.0,
+      "ct_sweep_n": 8,
+      "ct_pivot_n": 6,
+      "voxel_orbit_n": 8,
+      "voxel_fill_n": 8,
+      "hold_n": 3,
+      "ms_per_frame": 120,
+      "ch5_grid": 14,
+      "ch5_ct_grid": 10,
+      "ch5_voxel_grid": 14,
+      "ch5_prior_land_full": false
+    }
+  },
+  "motion_presets": {
+    "orbit_360": {"hq": 96, "draft": 8},
+    "knob_sweep": {"hq": 88, "draft": 12},
+    "ct_sweep": {"hq": 48, "draft": 8},
+    "ct_pivot": {"hq": 72, "draft": 6},
+    "voxel_fill": {"hq": 48, "draft": 8},
+    "hold": {"hq": 10, "draft": 3},
+    "grid_zoom": {"hq": 96, "draft": 12},
+    "grid_zoom_hold": {"hq": 8, "draft": 2},
+    "grid_zoom_orbit": {"hq": 96, "draft": 8},
+    "grid_focus_fade": {"hq": 20, "draft": 5},
+    "grid_squish": {"hq": 36, "draft": 8},
+    "grid_cam_morph": {"hq": 24, "draft": 6},
+    "seq_hold": {"hq": 3, "draft": 2},
+    "annot_hold": {"hq": 14, "draft": 4}
+  },
+  "surface_presets": {
+    "land_grid": {"hq": 132, "draft": 52},
+    "grid_land_grid": {"hq": 196, "draft": 72},
+    "voxel_grid": {"hq": 28, "draft": 14}
+  },
+  "layout": {
+    "canvas_h_in": 9.5,
+    "figsize": [16.88888888888889, 9.5],
+    "plot_w_frac": 0.7857142857142857,
+    "plot_h_frac": 0.6857142857142858,
+    "theme": "dark_rails"
+  },
+  "typography": {
+    "font_size": 14,
+    "title_size": 16
+  }
+}

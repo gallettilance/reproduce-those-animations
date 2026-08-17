@@ -1,6 +1,13 @@
 *.gif
+*.mp4
+*/cache/
 !examples/*.gif
 *.png
 *.mp4
 .DS_Store
 */.DS_Store
+*.egg-info/
+.vscode/
+.tox/
+*/py_cache/
+*/__pycache__/

@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hita"
+version = "0.2.0"
+description = "How I Think About — animation toolkit for logistic regression video series"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "numpy>=1.24",
+    "matplotlib>=3.7",
+    "Pillow>=10.0",
+    "imageio>=2.33",
+    "imageio-ffmpeg>=0.4.9",
+    "scipy>=1.10",
+    "tensorflow>=2.15",
+    "ipykernel>=6.0",
+    "nbclient>=0.10",
+    "nbformat>=5.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+hita-export = "hita.export.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["hita*"]
+
+[tool.setuptools.package-data]
+hita = [
+    "config/*.json",
+    "assets/fonts/*",
+    "assets/icons/*",
+    "assets/knobs/numbered/*",
+    "assets/knobs/labeled/*",
+    "legacy/assets/fonts/*",
+    "legacy/notebooks/*.ipynb",
+    "legacy/blender/*.inc",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
