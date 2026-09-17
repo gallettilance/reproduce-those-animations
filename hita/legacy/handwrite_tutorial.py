@@ -358,6 +358,10 @@ def _sym_scale(main_fs: float, text: str, *, style: HandwriteStyle) -> float:
     return main_fs * float(getattr(style, "symbol_scale", 1.0))
 
 
+def _runs_need_nested_script(runs: list[Run]) -> bool:
+    return len(runs) > 1 or any(r[0] in ("sub", "sup", "frac", "limop") for r in runs)
+
+
 def _run_font(
     kind: str,
     main_fs: float,
@@ -402,6 +406,20 @@ def run_size_px(
     bold: bool,
     fp_hand,
 ):
+    if kind in ("sub", "sup"):
+        inner_runs = parse_handwrite_runs(text)
+        if _runs_need_nested_script(inner_runs):
+            script_fs = main_fs * (
+                style.subscript_scale if kind == "sub" else style.superscript_scale
+            )
+            script_fp = hand_font(script_fs, bold=False) if style.enabled else None
+            w_px = mixed_line_width_px(
+                renderer, inner_runs, script_fs, style=style, bold=bold, fp_hand=script_fp,
+            )
+            h_px = mixed_line_height_px(
+                renderer, inner_runs, script_fs, style=style, bold=bold, fp_hand=script_fp,
+            )
+            return float(w_px), float(h_px)
     sym_text = str(text) if kind == "sym" else ""
     fs = _run_fontsize(kind, main_fs, style=style, sym_text=sym_text)
     run_bold = bold or kind == "hand_b"
@@ -479,10 +497,22 @@ def mixed_line_height_px(renderer, runs: list[Run], main_fs: float, *, style: Ha
             continue
         kind, text = run[0], str(run[1])
         if kind == "sub":
-            fp = _run_font(kind, main_fs, style=style, bold=bold, fp_hand=fp_hand)
-            _, sub_h_px, sub_d_px = renderer.get_text_width_height_descent(str(text), fp, ismath=False)
-            drop = main_d_px + main_fs * style.subscript_drop_frac * 0.85
-            sub_ext_px = max(sub_ext_px, drop + sub_d_px)
+            inner_runs = parse_handwrite_runs(text)
+            if _runs_need_nested_script(inner_runs):
+                sub_fs = main_fs * style.subscript_scale
+                sub_fp = hand_font(sub_fs, bold=False) if style.enabled else None
+                drop = main_d_px + main_fs * style.subscript_drop_frac * 0.85
+                sub_ext_px = max(
+                    sub_ext_px,
+                    drop + mixed_line_height_px(
+                        renderer, inner_runs, sub_fs, style=style, bold=False, fp_hand=sub_fp,
+                    ),
+                )
+            else:
+                fp = _run_font(kind, main_fs, style=style, bold=bold, fp_hand=fp_hand)
+                _, sub_h_px, sub_d_px = renderer.get_text_width_height_descent(str(text), fp, ismath=False)
+                drop = main_d_px + main_fs * style.subscript_drop_frac * 0.85
+                sub_ext_px = max(sub_ext_px, drop + sub_d_px)
         elif kind == "sup":
             fp = _run_font(kind, main_fs, style=style, bold=bold, fp_hand=fp_hand)
             _, sup_h_px, _ = renderer.get_text_width_height_descent(str(text), fp, ismath=False)
@@ -704,6 +734,26 @@ def _draw_runs_at(
         if not text:
             continue
         run_bold = bold or kind == "hand_b"
+        if kind in ("sub", "sup"):
+            inner_runs = parse_handwrite_runs(text)
+            if _runs_need_nested_script(inner_runs):
+                script_fs = main_fs * (
+                    style.subscript_scale if kind == "sub" else style.superscript_scale
+                )
+                script_fp = (
+                    hand_font(script_fs, bold=False) if style.enabled else None
+                )
+                y_script = baseline_y
+                if kind == "sub":
+                    y_script = baseline_y - sub_drop_px / ax_h_px
+                else:
+                    y_script = baseline_y + sup_raise_px / ax_h_px
+                x_cursor = _draw_runs_at(
+                    target, x_cursor, y_script, inner_runs, script_fs,
+                    style=style, bold=run_bold, color=color, transform=transform,
+                    ax_w_px=ax_w_px, ax_h_px=ax_h_px, fp_hand=script_fp,
+                )
+                continue
         fp = _run_font(kind, main_fs, style=style, bold=run_bold, fp_hand=fp_hand, sym_text=text if kind == "sym" else "")
         y_draw = baseline_y
         if kind == "sub":
@@ -1093,6 +1143,22 @@ def _tex_read_script(s: str, i: int) -> tuple[str, int]:
     if s[i] == "{":
         raw, i = _read_braced_raw(s, i)
         return _tex_convert(raw), i
+    if s[i] == "\\":
+        cmd, i = _tex_read_cmd(s, i)
+        if cmd in ("mathrm", "text"):
+            i = _tex_skip_ws(s, i)
+            inner, i = _read_braced_raw(s, i)
+            return inner, i
+        if cmd == "mu":
+            return "μ", i
+        if cmd == "sigma":
+            return "σ", i
+        glyph = {
+            "alpha": "α", "Delta": "Δ", "delta": "δ",
+        }.get(cmd)
+        if glyph is not None:
+            return glyph, i
+        return f"\\{cmd}", i
     start = i
     if i < len(s) and s[i].isalpha():
         while i < len(s) and s[i].isalpha():
@@ -1214,6 +1280,17 @@ def _tex_convert(s: str) -> str:
                 out.append(BOLD_OPEN + _tex_convert(inner) + BOLD_CLOSE)
             elif cmd == "sigma":
                 out.append("σ")
+            elif cmd == "mu":
+                out.append("μ")
+            elif cmd == "mathbb":
+                i = _tex_skip_ws(s, i)
+                inner, i = _read_braced(s, i)
+                glyph = {"E": "𝔼", "R": "ℝ"}.get(inner.strip(), inner.strip())
+                out.append(glyph)
+            elif cmd in ("langle",):
+                out.append("⟨")
+            elif cmd in ("rangle",):
+                out.append("⟩")
             elif cmd == "alpha":
                 out.append("α")
             elif cmd == "Delta":
@@ -1230,9 +1307,11 @@ def _tex_convert(s: str) -> str:
                     "cdot": "·", "in": "∈", "leftarrow": "←", "infty": "∞",
                 }
                 out.append(repl.get(cmd, ""))
-            elif cmd in ("left", "right", "bigl", "bigr", "limits", "mathop", "!", "displaystyle", "quad", "qquad"):
+            elif cmd in ("left", "right", "bigl", "bigr", "big", "limits", "mathop", "!", "displaystyle", "quad", "qquad"):
                 if cmd in ("quad", "qquad"):
                     out.append("  " if cmd == "quad" else "    ")
+                elif cmd == "big" and i < n:
+                    i += 1
             elif cmd == "begin":
                 i = _tex_skip_ws(s, i)
                 env, i = _read_braced(s, i)

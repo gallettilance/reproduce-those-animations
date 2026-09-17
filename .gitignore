@@ -1,13 +1,32 @@
-*.gif
-*.mp4
-*/cache/
-!examples/*.gif
-*.png
-*.mp4
+# OS / editor
 .DS_Store
-*/.DS_Store
-*.egg-info/
+**/.DS_Store
 .vscode/
 .tox/
-*/py_cache/
-*/__pycache__/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Legacy notebook cache dirs
+**/cache/
+**/py_cache/
+
+# Generated video
+*.gif
+*.mp4
+!examples/*.gif
+
+# Renders — ignore generated output; whitelist committed artifacts only
+renders/**
+!renders/ch6_workshop_thumbnail_pic3.png
+!renders/ch6_142_3d_plot_48s_black.png
+!renders/ch6_143_last_frame_howithinkabout.png
+!renders/ch5_youtube_thumbnail.png

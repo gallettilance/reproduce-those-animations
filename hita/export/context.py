@@ -126,17 +126,36 @@ def _base_globals(root: Path) -> dict[str, Any]:
 
     def save_mp4(frames, filename, duration=95):
         import imageio.v2 as imageio
+        import numpy as np
 
         from hita.config.export import fit_image_to_macro_block
 
         path = out / filename
-        frame_list = [fit_image_to_macro_block(im) for im in frames]
-        imageio.mimsave(
-            path,
-            frame_list,
-            fps=max(1.0, 1000.0 / float(duration)),
-            macro_block_size=1,
-        )
+        fps = max(1.0, 1000.0 / float(duration))
+        if isinstance(frames, (list, tuple)):
+            frame_list = [fit_image_to_macro_block(im) for im in frames]
+            imageio.mimsave(
+                path,
+                frame_list,
+                fps=fps,
+                macro_block_size=1,
+            )
+            return path
+
+        writer = None
+        try:
+            for im in frames:
+                arr = np.asarray(fit_image_to_macro_block(im))
+                if writer is None:
+                    writer = imageio.get_writer(
+                        path,
+                        fps=fps,
+                        macro_block_size=1,
+                    )
+                writer.append_data(arr)
+        finally:
+            if writer is not None:
+                writer.close()
         return path
 
     def save_gif(images, filename, duration=40):

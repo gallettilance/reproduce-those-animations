@@ -827,7 +827,7 @@ class TutorialComposer:
     @staticmethod
     def _freeze_line_progress(group: dict) -> tuple:
         return tuple(
-            (int(bi), tuple(sorted((int(li), float(p)) for li, p in lp.items())))
+            (int(bi), tuple(sorted((str(li), float(p)) for li, p in lp.items())))
             for bi, lp in sorted(group.items())
         )
 
@@ -1463,7 +1463,7 @@ class TutorialComposer:
             plot_alpha=plot_alpha,
             prog=prog,
             panel_u=panel_u,
-            right_rects_key=f"{shell_key}:right",
+            right_rects_key=f"{shell_key}:r{len(scene.math_right_blocks)}",
         )
         bc = self._cached_bottom_corner_overlay(
             scene,

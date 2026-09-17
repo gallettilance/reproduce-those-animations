@@ -477,6 +477,25 @@ def ch6_class_cov(*, sigma_par=None, sigma_perp=None):
 CH6_CLASS_COV = ch6_class_cov()
 
 
+def ch6_class_means(*, blend=None):
+    """Fail/pass means; ``blend=0`` keeps D1 sample means, ``1`` collapses to midpoint."""
+    b = float(CH6_CLASS_MEAN_BLEND if blend is None else blend)
+    mid = 0.5 * (CH6_MU_FAIL_D1 + CH6_MU_PASS_D1)
+    mu_fail = CH6_MU_FAIL_D1 + b * (mid - CH6_MU_FAIL_D1)
+    mu_pass = CH6_MU_PASS_D1 + b * (mid - CH6_MU_PASS_D1)
+    return mu_fail, mu_pass
+
+
+# ch6_98 right panel: identical overlapping Gaussians, diagonal (zero cross-) cov.
+CH6_WILD_MU = np.array([3.75, 3.75], dtype=np.float64)
+CH6_WILD_MU_FAIL = CH6_WILD_MU.copy()
+CH6_WILD_MU_PASS = CH6_WILD_MU.copy()
+CH6_WILD_COV_FAIL = np.diag([1.15 ** 2, 1.15 ** 2])
+CH6_WILD_COV_PASS = np.diag([1.15 ** 2, 1.15 ** 2])
+CH6_POP_CLIP_LO = 0.0
+CH6_POP_CLIP_HI = 8.0
+
+
 def ch6_lda_logistic_weights(
     *,
     mu_fail=None,
@@ -565,16 +584,41 @@ def ch6_sample_class_points(n, *, label, rng, cov=None, mu=None):
     return X[:, 0], X[:, 1], y
 
 
-def ch6_sample_population(n_total, *, seed=0, pi_fail=None):
+def ch6_sample_population(
+    n_total,
+    *,
+    seed=0,
+    pi_fail=None,
+    mu_fail=None,
+    mu_pass=None,
+    cov_fail=None,
+    cov_pass=None,
+    class_mean_blend=None,
+    clip_lo=CH6_POP_CLIP_LO,
+    clip_hi=CH6_POP_CLIP_HI,
+):
     """Draw a large ghost population from the two-class Gaussian mixture."""
     rng = np.random.default_rng(int(seed))
     pi_f = float(CH6_PI_FAIL if pi_fail is None else pi_fail)
+    if mu_fail is None or mu_pass is None:
+        blend_mu_fail, blend_mu_pass = ch6_class_means(blend=class_mean_blend)
+        mu_fail = blend_mu_fail if mu_fail is None else np.asarray(mu_fail, dtype=np.float64)
+        mu_pass = blend_mu_pass if mu_pass is None else np.asarray(mu_pass, dtype=np.float64)
+    else:
+        mu_fail = np.asarray(mu_fail, dtype=np.float64)
+        mu_pass = np.asarray(mu_pass, dtype=np.float64)
+    cov_fail = CH6_CLASS_COV if cov_fail is None else np.asarray(cov_fail, dtype=np.float64)
+    cov_pass = CH6_CLASS_COV if cov_pass is None else np.asarray(cov_pass, dtype=np.float64)
     n_fail = int(rng.binomial(int(n_total), pi_f))
     n_pass = int(n_total) - n_fail
-    s0, e0, y0 = ch6_sample_class_points(n_fail, label=0, rng=rng)
-    s1, e1, y1 = ch6_sample_class_points(n_pass, label=1, rng=rng)
-    study = np.concatenate([s0, s1])
-    exam = np.concatenate([e0, e1])
+    s0, e0, y0 = ch6_sample_class_points(
+        n_fail, label=0, rng=rng, mu=mu_fail, cov=cov_fail,
+    )
+    s1, e1, y1 = ch6_sample_class_points(
+        n_pass, label=1, rng=rng, mu=mu_pass, cov=cov_pass,
+    )
+    study = np.clip(np.concatenate([s0, s1]), float(clip_lo), float(clip_hi))
+    exam = np.clip(np.concatenate([e0, e1]), float(clip_lo), float(clip_hi))
     y = np.concatenate([y0, y1])
     # shuffle for nicer draw order
     perm = rng.permutation(len(y))
@@ -643,13 +687,33 @@ def ch6_population_param_cloud_pack(
     seed=20,
     seed_from_key=None,
     n_reel=None,
+    anchor_roster=None,
+    class_mean_blend=None,
+    pop_mu_fail=None,
+    pop_mu_pass=None,
+    pop_cov_fail=None,
+    pop_cov_pass=None,
+    pop_seed_offset=11,
 ):
     """Population-reel classroom landings in (w_ST, w_EL, b) — shared by story builders."""
     from ch5_datasets import CH5_STANDARD_XLIM, CH5_STANDARD_YLIM, ch5_unpack_dataset
 
     xlim, ylim = CH5_STANDARD_XLIM, CH5_STANDARD_YLIM
     n_reel = int(CH6_N_POP_REEL if n_reel is None else n_reel)
-    pop_s, pop_e, pop_y = ch6_sample_population(CH6_POP_SIZE, seed=int(seed) + 11)
+    pop_kw = {}
+    if class_mean_blend is not None:
+        pop_kw["class_mean_blend"] = float(class_mean_blend)
+    if pop_mu_fail is not None:
+        pop_kw["mu_fail"] = pop_mu_fail
+    if pop_mu_pass is not None:
+        pop_kw["mu_pass"] = pop_mu_pass
+    if pop_cov_fail is not None:
+        pop_kw["cov_fail"] = pop_cov_fail
+    if pop_cov_pass is not None:
+        pop_kw["cov_pass"] = pop_cov_pass
+    pop_s, pop_e, pop_y = ch6_sample_population(
+        CH6_POP_SIZE, seed=int(seed) + int(pop_seed_offset), **pop_kw,
+    )
 
     if seed_from_key is not None:
         tgt_s, tgt_e, tgt_y = ch5_unpack_dataset(str(seed_from_key))
@@ -672,12 +736,21 @@ def ch6_population_param_cloud_pack(
     w_open, _ = ch6_fit_population_classroom(open_s, open_e, open_y)
     w_seed, _ = ch6_fit_population_classroom(seed_s, seed_e, seed_y)
 
+    anchor_s = anchor_e = anchor_y = None
+    if anchor_roster is not None:
+        anchor_s, anchor_e, anchor_y = anchor_roster
+        anchor_s = np.asarray(anchor_s, dtype=np.float64)
+        anchor_e = np.asarray(anchor_e, dtype=np.float64)
+        anchor_y = np.asarray(anchor_y, dtype=np.int64)
+
     rng = np.random.default_rng(int(seed) + 99)
     ghosts: list[np.ndarray] = []
     landed: list[np.ndarray] = []
     reel_steps: list[dict] = []
     for i in range(n_reel):
-        if i == 0 and match_s is not None:
+        if i == 0 and anchor_s is not None:
+            cs, ce, cy = anchor_s, anchor_e, anchor_y
+        elif i == 0 and match_s is not None:
             cs, ce, cy = seed_s, seed_e, seed_y
         else:
             cs, ce, cy, _ = ch6_draw_classroom_from_population(
@@ -710,6 +783,304 @@ def ch6_population_param_cloud_pack(
         "n_class": int(n_class),
         "seed": int(seed),
         "seed_from_key": seed_from_key,
+    }
+
+
+def ch6_apply_heterogeneous_labels(study, exam, y_generative, *, rng, phenotype=None):
+    """Re-label a classroom roster with a random (or fixed) classroom phenotype.
+
+    Phenotypes span lenient-to-slackers, harsh-to-grinders, exam-biased regimes,
+    standard generative labels, noise, inversion, and coin-flip baselines.
+    """
+    study = np.asarray(study, dtype=np.float64).reshape(-1)
+    exam = np.asarray(exam, dtype=np.float64).reshape(-1)
+    y_gen = np.asarray(y_generative, dtype=np.float64).reshape(-1)
+    rng = np.random.default_rng(rng)
+    n = len(study)
+    if phenotype is None:
+        phenotype = str(rng.choice([
+            "lenient_low_study",
+            "harsh_high_study",
+            "exam_pass_bias",
+            "exam_fail_bias",
+            "lenient_slackers",
+            "harsh_grinders",
+            "standard",
+            "noisy",
+            "inverted",
+            "random",
+            "bimodal_extremes",
+            "all_pass",
+            "all_fail",
+            "ultra_lenient",
+            "ultra_harsh",
+            "chaotic",
+        ]))
+    q25_s, q50_s, q75_s = np.quantile(study, [0.25, 0.5, 0.75])
+    q25_e, q50_e, q75_e = np.quantile(exam, [0.25, 0.5, 0.75])
+
+    def _bernoulli(p):
+        return (rng.random(n) < float(p)).astype(np.int64)
+
+    if phenotype == "standard":
+        return np.rint(y_gen).astype(np.int64)
+    if phenotype == "inverted":
+        return (1 - np.rint(y_gen)).astype(np.int64)
+    if phenotype == "random":
+        return rng.integers(0, 2, size=n, dtype=np.int64)
+    if phenotype == "noisy":
+        y = np.rint(y_gen).astype(np.int64)
+        flip = rng.random(n) < 0.38
+        y[flip] = 1 - y[flip]
+        return y
+    if phenotype == "lenient_low_study":
+        y = np.zeros(n, dtype=np.int64)
+        low = study <= q50_s
+        y[low] = _bernoulli(0.88)[low]
+        y[~low] = _bernoulli(0.32)[~low]
+        return y
+    if phenotype == "harsh_high_study":
+        y = np.ones(n, dtype=np.int64)
+        high = study >= q50_s
+        y[high] = _bernoulli(0.15)[high]
+        y[~high] = _bernoulli(0.62)[~high]
+        return y
+    if phenotype == "exam_pass_bias":
+        y = np.zeros(n, dtype=np.int64)
+        hi_e = exam >= q50_e
+        y[hi_e] = _bernoulli(0.86)[hi_e]
+        y[~hi_e] = _bernoulli(0.28)[~hi_e]
+        return y
+    if phenotype == "exam_fail_bias":
+        y = np.ones(n, dtype=np.int64)
+        hi_e = exam >= q50_e
+        y[hi_e] = _bernoulli(0.18)[hi_e]
+        y[~hi_e] = _bernoulli(0.58)[~hi_e]
+        return y
+    if phenotype == "lenient_slackers":
+        y = np.zeros(n, dtype=np.int64)
+        slack = (study <= q25_s) & (exam <= q50_e)
+        y[slack] = _bernoulli(0.92)[slack]
+        y[~slack] = _bernoulli(0.40)[~slack]
+        return y
+    if phenotype == "harsh_grinders":
+        y = np.ones(n, dtype=np.int64)
+        grind = study >= q75_s
+        y[grind] = _bernoulli(0.12)[grind]
+        y[~grind] = _bernoulli(0.55)[~grind]
+        return y
+    if phenotype == "bimodal_extremes":
+        y = np.zeros(n, dtype=np.int64)
+        order = np.argsort(study)
+        half = n // 2
+        low_ix, high_ix = order[:half], order[half:]
+        y[low_ix] = _bernoulli(0.90)[low_ix]
+        y[high_ix] = _bernoulli(0.10)[high_ix]
+        return y
+    if phenotype == "all_pass":
+        return np.ones(n, dtype=np.int64)
+    if phenotype == "all_fail":
+        return np.zeros(n, dtype=np.int64)
+    if phenotype == "ultra_lenient":
+        y = np.zeros(n, dtype=np.int64)
+        low = study <= q75_s
+        y[low] = _bernoulli(0.96)[low]
+        y[~low] = _bernoulli(0.55)[~low]
+        return y
+    if phenotype == "ultra_harsh":
+        y = np.ones(n, dtype=np.int64)
+        high = study >= q25_s
+        y[high] = _bernoulli(0.04)[high]
+        y[~high] = _bernoulli(0.45)[~high]
+        return y
+    if phenotype == "chaotic":
+        y = np.rint(y_gen).astype(np.int64)
+        flip = rng.random(n) < 0.55
+        y[flip] = 1 - y[flip]
+        return y
+    return np.rint(y_gen).astype(np.int64)
+
+
+CH6_UNIFORM_WEIGHT_CORNERS = np.array([
+    [3.0, -3.0, 3.0], [-3.0, 3.0, 3.0], [3.0, 3.0, -3.0], [-3.0, -3.0, 3.0],
+    [3.0, -3.0, -3.0], [-3.0, 3.0, -3.0], [-3.0, -3.0, -3.0], [3.0, 3.0, 3.0],
+    [3.0, 0.0, 0.0], [-3.0, 0.0, 0.0], [0.0, 3.0, 0.0], [0.0, -3.0, 0.0],
+    [0.0, 0.0, 3.0], [0.0, 0.0, -3.0],
+], dtype=np.float64)
+
+
+def ch6_uniform_weight_targets(n_reel, *, seed=106, lo=-3.0, hi=3.0):
+    """Latin-hypercube targets in ``[lo, hi]^3`` with strong corner anchors."""
+    from scipy.stats import qmc
+
+    n_reel = int(n_reel)
+    sampler = qmc.LatinHypercube(d=3, seed=int(seed) + 17)
+    unit = sampler.random(n=n_reel)
+    targets = qmc.scale(unit, [lo, lo, lo], [hi, hi, hi]).astype(np.float64)
+    corners = CH6_UNIFORM_WEIGHT_CORNERS
+    slots = np.linspace(0, n_reel - 1, num=len(corners), dtype=int)
+    for slot, corner in zip(slots, corners):
+        targets[int(slot)] = corner
+    return targets
+
+
+def _ch6_weight_fit_error(w_fit, w_target):
+    """Scalar mismatch between fitted and target logistic weights."""
+    w_fit = np.asarray(w_fit, dtype=np.float64).reshape(3)
+    w_tgt = np.asarray(w_target, dtype=np.float64).reshape(3)
+    n_fit = float(np.linalg.norm(w_fit))
+    n_tgt = float(np.linalg.norm(w_tgt))
+    if n_tgt < 0.12:
+        return float(np.linalg.norm(w_fit - w_tgt))
+    u_fit = w_fit / max(n_fit, 1e-9)
+    u_tgt = w_tgt / max(n_tgt, 1e-9)
+    dir_err = 1.0 - float(np.clip(np.dot(u_fit, u_tgt), -1.0, 1.0))
+    mag_err = abs(n_fit - n_tgt) / max(n_tgt, 0.35)
+    return dir_err + mag_err + 0.25 * abs(w_fit[2] - w_tgt[2]) / max(abs(w_tgt[2]), 0.35)
+
+
+def ch6_classroom_for_target_weight(
+    w_target,
+    n_class,
+    *,
+    rng,
+    separation=1.5,
+    label_noise=0.0,
+):
+    """Synthesize a classroom whose ridge-penalized MLE aims at ``w_target``.
+
+    Points are drawn uniformly in the plot window; labels follow a logistic
+    model at a calibrated temperature so weak targets stay near the origin and
+    corner targets like ``(3,-3,3)`` land near the view bounds.
+    """
+    del separation  # legacy kwarg; temperature is calibrated instead.
+    rng = np.random.default_rng(rng)
+    w_tgt = np.asarray(w_target, dtype=np.float64).reshape(3)
+    n = int(n_class)
+    study = rng.uniform(0.8, 6.2, n)
+    exam = rng.uniform(0.8, 7.2, n)
+    uniforms = rng.random(n)
+    flip_mask = None
+    if label_noise > 0.0:
+        flip_mask = rng.random(n) < float(label_noise)
+    tgt_norm = float(np.linalg.norm(w_tgt))
+    temp_lo = 0.04 if tgt_norm < 0.75 else 0.10
+    temp_hi = 5.5 if tgt_norm > 2.2 else 3.2
+    best = None
+
+    def _labels(temp: float):
+        z = (study * w_tgt[0] + exam * w_tgt[1] + w_tgt[2]) * float(temp)
+        p = ch6_sigmoid(z)
+        y = (uniforms < p).astype(np.int64)
+        if flip_mask is not None:
+            y = y.copy()
+            y[flip_mask] = 1 - y[flip_mask]
+        return y
+
+    for _ in range(26):
+        temp = 0.5 * (temp_lo + temp_hi)
+        y = _labels(temp)
+        if len(np.unique(y)) < 2:
+            temp_lo = temp
+            continue
+        w_fit, _ = ch6_fit_population_classroom(study, exam, y, w0=w_tgt)
+        err = _ch6_weight_fit_error(w_fit, w_tgt)
+        if best is None or err < best[0]:
+            best = (err, y.copy(), temp)
+        fit_norm = float(np.linalg.norm(w_fit))
+        if fit_norm < tgt_norm * 0.93:
+            temp_lo = temp
+        else:
+            temp_hi = temp
+        if err < 0.07:
+            break
+    if best is None:
+        y = _labels(1.0)
+    else:
+        y = best[1]
+    return study, exam, y
+
+
+def ch6_population_heterogeneous_cloud_pack(
+    n_class,
+    *,
+    seed=106,
+    n_reel=None,
+    pop_seed_offset=41,
+    uniform_weights=False,
+):
+    """Population reel with heterogeneous classrooms.
+
+    When ``uniform_weights`` is True, most draws target a uniform spread of
+    fitted lines (strong corners like ``(3,-3,3)`` down to weak/near-random).
+    """
+    from ch5_datasets import CH5_STANDARD_XLIM, CH5_STANDARD_YLIM
+
+    xlim, ylim = CH5_STANDARD_XLIM, CH5_STANDARD_YLIM
+    n_reel = int(CH6_N_POP_REEL if n_reel is None else n_reel)
+    pop_s, pop_e, pop_y = ch6_sample_population(
+        CH6_POP_SIZE, seed=int(seed) + int(pop_seed_offset),
+    )
+    open_s, open_e, open_y = ch6_opening_classroom_from_population(
+        pop_s, pop_e, pop_y, int(n_class), seed=int(seed),
+    )
+    w_open, _ = ch6_fit_population_classroom(open_s, open_e, open_y)
+    w_seed, _ = ch6_fit_population_classroom(open_s, open_e, open_y)
+
+    rng = np.random.default_rng(int(seed) + 99)
+    ghosts: list[np.ndarray] = []
+    landed: list[np.ndarray] = []
+    reel_steps: list[dict] = []
+    w_targets = (
+        ch6_uniform_weight_targets(n_reel, seed=int(seed))
+        if uniform_weights else None
+    )
+    if uniform_weights:
+        separations = np.linspace(0.06, 2.85, n_reel, dtype=np.float64)
+        rng.shuffle(separations)
+    for i in range(n_reel):
+        if uniform_weights and w_targets is not None and rng.random() >= 0.18:
+            w_tgt = w_targets[i]
+            sep = float(separations[i])
+            tgt_norm = float(np.linalg.norm(w_tgt))
+            noise = float(np.clip(0.26 - 0.08 * tgt_norm, 0.0, 0.24))
+            cs, ce, cy = ch6_classroom_for_target_weight(
+                w_tgt, int(n_class), rng=rng,
+                separation=sep, label_noise=noise,
+            )
+            w, _ = ch6_fit_population_classroom(cs, ce, cy, w0=w_tgt)
+        else:
+            cs, ce, cy_gen, _ = ch6_draw_classroom_from_population(
+                pop_s, pop_e, pop_y, int(n_class), rng=rng,
+            )
+            cy = ch6_apply_heterogeneous_labels(cs, ce, cy_gen, rng=rng)
+            w, _ = ch6_fit_population_classroom(cs, ce, cy)
+        landed.append(w)
+        reel_steps.append({
+            "study": cs, "exam": ce, "y": cy, "w": w,
+            "markers": np.asarray(landed), "ghosts": list(ghosts),
+        })
+        ghosts.append(w)
+
+    return {
+        "xlim": xlim,
+        "ylim": ylim,
+        "pop_s": pop_s,
+        "pop_e": pop_e,
+        "pop_y": pop_y,
+        "open_s": open_s,
+        "open_e": open_e,
+        "open_y": open_y,
+        "match_s": None,
+        "match_e": None,
+        "match_y": None,
+        "w_open": w_open,
+        "w_seed": w_seed,
+        "landed": np.asarray(landed, dtype=np.float64),
+        "reel_steps": reel_steps,
+        "n_class": int(n_class),
+        "seed": int(seed),
+        "seed_from_key": None,
     }
 
 
