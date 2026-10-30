@@ -94,3 +94,17 @@ def render_sigmoid_frame(pack: dict[str, Any], spec: dict[str, Any]):
 def render_ch7_demo_frame(pack: dict[str, Any], spec: dict[str, Any]):
     """Alias — Ch7 demo uses the shared sigmoid renderer."""
     return render_sigmoid_frame(pack, spec)
+
+
+def render_ch8_frame(pack: dict[str, Any], spec: dict[str, Any]):
+    """Render one Chapter 8 linear-regression frame."""
+    from hita.stories.builders.ch8_linreg import render_frame
+
+    return render_frame(pack, spec)
+
+
+def render_ch9_frame(pack: dict[str, Any], spec: dict[str, Any]):
+    """Render one Chapter 9 support-vector frame."""
+    from hita.stories.builders.ch9_svm import render_frame
+
+    return render_frame(pack, spec)

@@ -37,6 +37,10 @@ _CODE_HASH_MODULES = (
     "hita.export.spec",
     "hita.stories.builders.ch5_47",
     "hita.stories.builders.ch5_54",
+    "hita.stories.builders.ch8_linreg",
+    "hita.stories.builders.ch9_svm",
+    "hita.primitives.linreg",
+    "hita.primitives.plants",
     "ch5_prior_landscape",
 )
 

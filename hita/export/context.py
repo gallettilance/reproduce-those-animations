@@ -265,12 +265,14 @@ def _load_ch3_plus(root: Path, g: dict[str, Any], chapter: int) -> dict[str, Any
 
 def _load_native(chapter: int, g: dict[str, Any]) -> dict[str, Any]:
     """Chapters born on hita — import stories only, never exec notebooks."""
-    if chapter == 7:
-        from hita.stories import ch7 as ch7_story
+    import importlib
 
-        ch7_story.install(g)
-        return g
-    raise ValueError(f"no native hita loader for chapter {chapter}")
+    try:
+        story = importlib.import_module(f"hita.stories.ch{int(chapter)}")
+    except ModuleNotFoundError as exc:
+        raise ValueError(f"no native hita loader for chapter {chapter}") from exc
+    story.install(g)
+    return g
 
 
 def load_export_context(root: Path | str | None = None, *, chapter: int = 5) -> dict[str, Any]:

@@ -17,6 +17,8 @@ _TITLES = {
     5: "Can we trust the model?",
     6: "Frequentist sampling — how much does the line wiggle?",
     7: "Collinearity & regularization (native hita)",
+    8: "Linear regression with plants",
+    9: "Support vector machines",
 }
 
 _STORY_IMPORT = {
@@ -27,6 +29,8 @@ _STORY_IMPORT = {
     5: "from hita.stories.ch5 import CH5_EXPORT_SPECS as EXPORT_SPECS, export_clip",
     6: "from hita.stories.ch6 import CH6_EXPORT_SPECS as EXPORT_SPECS, export_clip",
     7: "from hita.stories.ch7 import CH7_EXPORT_SPECS as EXPORT_SPECS, export_clip",
+    8: "from hita.stories.ch8 import CH8_EXPORT_SPECS as EXPORT_SPECS, export_clip",
+    9: "from hita.stories.ch9 import CH9_EXPORT_SPECS as EXPORT_SPECS, export_clip",
 }
 
 # Modules to drop from sys.modules before chapter 5 setup so notebook kernels
@@ -50,6 +54,8 @@ _INHERITS = {
     5: [3, 4],
     6: [3, 4, 5],
     7: [],
+    8: [],
+    9: [],
 }
 
 
@@ -96,7 +102,13 @@ def _intro(chapter: int, n_exports: int) -> str:
         if chapter >= 7
         else ""
     )
-    return f"""# Logistic Regression — Chapter {chapter} ({_TITLES[chapter]})
+    if chapter >= 9:
+        series = "Support Vector Machines"
+    elif chapter >= 8:
+        series = "Linear Regression"
+    else:
+        series = "Logistic Regression"
+    return f"""# {series} — Chapter {chapter} ({_TITLES[chapter]})
 
 Migrated to the **HITA** library. Run the setup cell once, then each export cell.
 {native_note}
@@ -131,6 +143,14 @@ def _exports_for(chapter: int) -> list[tuple[str, str]]:
         from hita.stories.ch7 import CH7_EXPORT_SPECS
 
         return list(CH7_EXPORT_SPECS)
+    if chapter == 8:
+        from hita.stories.ch8 import CH8_EXPORT_SPECS
+
+        return list(CH8_EXPORT_SPECS)
+    if chapter == 9:
+        from hita.stories.ch9 import CH9_EXPORT_SPECS
+
+        return list(CH9_EXPORT_SPECS)
     return [(f"ch{chapter}_00", f"ch{chapter}_00_placeholder.mp4")]
 
 
@@ -194,16 +214,22 @@ def gen_notebook(chapter: int) -> Path:
         "nbformat_minor": 5,
     }
     NOTEBOOKS_DIR.mkdir(parents=True, exist_ok=True)
-    out = NOTEBOOKS_DIR / f"logistic-regression-chap{chapter}.ipynb"
+    if chapter >= 9:
+        prefix = "support-vector-machines"
+    elif chapter >= 8:
+        prefix = "linear-regression"
+    else:
+        prefix = "logistic-regression"
+    out = NOTEBOOKS_DIR / f"{prefix}-chap{chapter}.ipynb"
     out.write_text(json.dumps(nb, indent=2))
     return out
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--chapter", type=int, default=0, help="1–7, or 0 for all")
+    parser.add_argument("--chapter", type=int, default=0, help="1–9, or 0 for all")
     args = parser.parse_args()
-    chapters = [args.chapter] if args.chapter else [1, 2, 3, 4, 5, 6, 7]
+    chapters = [args.chapter] if args.chapter else [1, 2, 3, 4, 5, 6, 7, 8, 9]
     for ch in chapters:
         print("wrote", gen_notebook(ch))
 

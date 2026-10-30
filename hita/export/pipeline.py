@@ -120,6 +120,19 @@ def _resolve_render_fn(name: str) -> Callable:
         from hita.export.renderers import render_ch7_demo_frame
 
         return render_ch7_demo_frame
+    if name == "hita.export.renderers.render_ch8_frame":
+        from hita.export.renderers import render_ch8_frame
+
+        return render_ch8_frame
+    if name == "hita.export.renderers.render_ch9_frame":
+        from hita.export.renderers import render_ch9_frame
+
+        return render_ch9_frame
+    mod_name, _, fn_name = name.rpartition(".")
+    if mod_name and fn_name:
+        import importlib
+
+        return getattr(importlib.import_module(mod_name), fn_name)
     raise KeyError(f"unknown render function: {name!r}")
 
 

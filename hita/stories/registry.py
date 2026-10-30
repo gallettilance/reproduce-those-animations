@@ -149,6 +149,8 @@ def _register_all() -> None:
     import hita.stories.ch1  # noqa: F401
     import hita.stories.ch2  # noqa: F401
     import hita.stories.ch7  # noqa: F401
+    import hita.stories.ch8  # noqa: F401
+    import hita.stories.ch9  # noqa: F401
 
 
 _register_all()

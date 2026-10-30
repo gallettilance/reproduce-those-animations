@@ -17,6 +17,8 @@ _DEFAULT_INHERITS = {
     5: [3, 4],
     6: [3, 4, 5],
     7: [],  # native — no notebook inheritance
+    8: [],
+    9: [],
 }
 
 
